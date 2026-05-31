@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(go version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\frontend\" -Force | ForEach-Object { Remove-Item $_.FullName -Recurse -Force -Confirm:$false }; Get-ChildItem \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\frontend\" -Force)",
+      "PowerShell(go env GOPROXY)",
+      "PowerShell(go env -w GOPROXY=https://proxy.golang.org,direct)",
+      "PowerShell(cd \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\"; $env:GODEBUG=\"http2client=0\"; go get github.com/gin-gonic/gin github.com/gin-contrib/cors gorm.io/gorm gorm.io/driver/postgres github.com/golang-jwt/jwt/v5 golang.org/x/crypto github.com/joho/godotenv github.com/go-playground/validator/v10 2>&1)",
+      "PowerShell(cd \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\"; $env:GODEBUG=\"http2client=0\"; go get github.com/gin-gonic/gin@v1.9.1 github.com/gin-contrib/cors gorm.io/gorm gorm.io/driver/postgres github.com/golang-jwt/jwt/v5 golang.org/x/crypto github.com/joho/godotenv github.com/go-playground/validator/v10 2>&1)",
+      "PowerShell(cd \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\"; $env:GODEBUG=\"http2client=0\"; go get github.com/gin-gonic/gin@v1.9.1 github.com/gin-contrib/cors@v1.5.0 gorm.io/gorm gorm.io/driver/postgres github.com/golang-jwt/jwt/v5 golang.org/x/crypto github.com/joho/godotenv github.com/go-playground/validator/v10 2>&1)",
+      "PowerShell($env:PGPASSWORD=\"AliB123\"; psql -U alib -h localhost -c \"CREATE DATABASE alib_crm;\" 2>&1)",
+      "PowerShell($psql = \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\"; $env:PGPASSWORD=\"AliB123\"; & $psql -U alib -h localhost -c \"CREATE DATABASE alib_crm;\" 2>&1)",
+      "PowerShell(Invoke-RestMethod -Method POST -Uri \"http://localhost:8080/api/v1/auth/login\" -ContentType \"application/json\" -Body '{\"email\":\"admin@alib.ae\",\"password\":\"Admin123!\"}' 2>&1)",
+      "PowerShell($body = '{\"name\":\"Admin\",\"email\":\"admin@alib.ae\",\"password\":\"Admin123!\",\"phone\":\"+971501234567\",\"role\":\"superadmin\"}')",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\" -Directory -Force)",
+      "Bash(Select-Object Name)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\" -Recurse -Directory | ForEach-Object { $_.FullName.Replace\\(\"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\", \"\"\\).TrimStart\\('\\\\'\\) } | Sort-Object)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\frontend\\\\src\" -Recurse -Directory | ForEach-Object { $_.FullName.Replace\\(\"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\frontend\\\\src\", \"\"\\).TrimStart\\('\\\\'\\) } | Sort-Object)",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\"; go build ./... 2>&1; Write-Host \"Backend: exit $LASTEXITCODE\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\kgulboev\\\\Projects\\\\Alib\\\\crm.alib.ae\\\\backend\"; go build ./... 2>&1; Write-Host \"Backend: $LASTEXITCODE\")"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+# Backend (Go)
+backend/.env
+backend/tmp/
+backend/alib-crm
+backend/alib-crm.exe
+
+# Frontend (React)
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/*.tsbuildinfo
+
+# General
+.DS_Store
+*.log
+*.pem
