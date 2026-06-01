@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Search, Phone } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import api from '../../api/client'
 import type { Client } from '../../types'
 import { formatCurrency } from '../../lib/utils'
 import CreateClientModal from './CreateClientModal'
 
 export default function ClientsPage() {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -21,13 +23,13 @@ export default function ClientsPage() {
       <CreateClientModal open={createOpen} onClose={() => setCreateOpen(false)} />
 
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Клиенты</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('clients.title')}</h1>
         <button
           onClick={() => setCreateOpen(true)}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition"
         >
           <Plus size={16} />
-          Добавить клиента
+          {t('clients.addClient')}
         </button>
       </div>
 
@@ -36,25 +38,25 @@ export default function ClientsPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Поиск по имени или телефону..."
+          placeholder={t('clients.searchPlaceholder')}
           className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-400">Загрузка...</div>
+          <div className="p-8 text-center text-gray-400">{t('common.loading')}</div>
         ) : clients.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">Клиентов не найдено</div>
+          <div className="p-8 text-center text-gray-400">{t('clients.noClients')}</div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Имя</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Телефон</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Страна</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Баланс</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Статус</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colName')}</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colPhone')}</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colCountry')}</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colBalance')}</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colStatus')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -80,7 +82,7 @@ export default function ClientsPage() {
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                       client.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                     }`}>
-                      {client.active ? 'Активен' : 'Неактивен'}
+                      {client.active ? t('clients.active') : t('clients.inactive')}
                     </span>
                   </td>
                 </tr>

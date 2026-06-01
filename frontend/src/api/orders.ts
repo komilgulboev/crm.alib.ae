@@ -1,5 +1,5 @@
 import api from './client'
-import type { Order, DashboardStats } from '../types'
+import type { Order, DashboardStats, OrderLog, OrderNote } from '../types'
 
 export const ordersApi = {
   list: (params?: Record<string, string>) =>
@@ -20,4 +20,10 @@ export const ordersApi = {
     api.post(`/orders/${id}/issue`, { note }),
 
   dashboardStats: () => api.get<DashboardStats>('/dashboard/stats'),
+
+  getLogs: (id: number) => api.get<OrderLog[]>(`/orders/${id}/logs`),
+
+  getNotes:   (id: number)               => api.get<OrderNote[]>(`/orders/${id}/notes`),
+  addNote:    (id: number, text: string) => api.post<OrderNote>(`/orders/${id}/notes`, { text }),
+  deleteNote: (id: number, noteId: number) => api.delete(`/orders/${id}/notes/${noteId}`),
 }

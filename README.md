@@ -11,23 +11,106 @@ cd c:\Users\kgulboev\Projects\Alib\crm.alib.ae\backend; go run ./cmd/server
 # Терминал 2
 cd c:\Users\kgulboev\Projects\Alib\crm.alib.ae\frontend; npm run dev
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. На локальной машине — собрать фронтенд
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+cd c:\Users\kgulboev\Projects\Alib\crm.alib.ae\frontend
+npm run build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Создаст папку frontend/dist/
+2. Собрать бэкенд под Linux (cross-compile)
 
-## Learn More
+cd c:\Users\kgulboev\Projects\Alib\crm.alib.ae\backend
+$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o crm-server ./cmd/server
+3. Загрузить на сервер
 
-To learn more about Next.js, take a look at the following resources:
+# Создать папку на сервере
+ssh user@your-server "mkdir -p /opt/alib-crm"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Загрузить бинарник и фронтенд
+scp crm-server user@your-server:/opt/alib-crm/
+scp -r frontend/dist user@your-server:/opt/alib-crm/
+4. На сервере — создать .env
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+ssh user@your-server
+cat > /opt/alib-crm/.env << 'EOF'
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=STRONG_PASSWORD
+DB_NAME=alib_crm
+JWT_SECRET=LONG_RANDOM_SECRET_HERE
+PORT=8080
+CORS_ORIGIN=https://crm.alib.ae
 
-## Deploy on Vercel
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=STRONG_MINIO_PASSWORD
+MINIO_BUCKET=alib-crm-cargo
+MINIO_USE_SSL=false
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+ANTHROPIC_API_KEY=sk-ant-...
+EOF
+5. Создать systemd-сервис
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+sudo tee /etc/systemd/system/alib-crm.service << 'EOF'
+[Unit]
+Description=Alib CRM
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/alib-crm
+EnvironmentFile=/opt/alib-crm/.env
+ExecStart=/opt/alib-crm/crm-server
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable alib-crm
+sudo systemctl start alib-crm
+6. Nginx как reverse proxy (если нужен HTTPS)
+
+server {
+    listen 80;
+    server_name crm.alib.ae;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name crm.alib.ae;
+
+    ssl_certificate     /etc/letsencrypt/live/crm.alib.ae/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/crm.alib.ae/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        client_max_body_size 50M;
+    }
+}
+Структура на сервере после деплоя
+
+/opt/alib-crm/
+├── crm-server      ← Go-бинарник
+├── .env            ← переменные окружения
+└── dist/           ← собранный фронтенд
+    ├── index.html
+    └── assets/
+Обновление (следующие разы)
+
+# Пересобрать всё
+cd frontend && npm run build
+cd ../backend && $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o crm-server ./cmd/server
+
+# Загрузить и перезапустить
+scp crm-server user@your-server:/opt/alib-crm/
+scp -r frontend/dist user@your-server:/opt/alib-crm/
+ssh user@your-server "sudo systemctl restart alib-crm"
+GORM AutoMigrate при каждом запуске сам обновляет схему БД — новые поля (например priority) добавятся автоматически.

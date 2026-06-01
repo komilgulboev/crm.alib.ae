@@ -1,30 +1,39 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Package, CreditCard,
-  Settings, LogOut, Truck, Building2,
+  Settings, LogOut, Truck, Building2, BookOpen, Globe,
 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/auth'
 import { cn } from '../../lib/utils'
-
-const navItems = [
-  { to: '/',          icon: LayoutDashboard, label: 'Дашборд' },
-  { to: '/orders',    icon: Package,         label: 'Заказы' },
-  { to: '/clients',   icon: Users,           label: 'Клиенты' },
-  { to: '/payments',  icon: CreditCard,      label: 'Платежи' },
-]
-
-const adminItems = [
-  { to: '/users',         icon: Settings,   label: 'Пользователи' },
-  { to: '/bank-accounts', icon: Building2,  label: 'Банки' },
-]
 
 export default function Sidebar() {
   const { user, clearAuth } = useAuthStore()
   const navigate = useNavigate()
+  const { t, i18n } = useTranslation()
+
+  const navItems = [
+    { to: '/',         icon: LayoutDashboard, label: t('nav.dashboard') },
+    { to: '/orders',   icon: Package,         label: t('nav.orders') },
+    { to: '/clients',  icon: Users,           label: t('nav.clients') },
+    { to: '/payments', icon: CreditCard,      label: t('nav.payments') },
+  ]
+
+  const adminItems = [
+    { to: '/users',         icon: Settings,  label: t('nav.users') },
+    { to: '/bank-accounts', icon: Building2, label: t('nav.banks') },
+    { to: '/catalogs',      icon: BookOpen,  label: t('nav.catalogs') },
+  ]
 
   const handleLogout = () => {
     clearAuth()
     navigate('/login')
+  }
+
+  const toggleLang = () => {
+    const next = i18n.language === 'ru' ? 'en' : 'ru'
+    i18n.changeLanguage(next)
+    localStorage.setItem('lang', next)
   }
 
   return (
@@ -36,7 +45,7 @@ export default function Sidebar() {
           </div>
           <div>
             <h1 className="font-bold text-lg leading-tight">Alib CRM</h1>
-            <p className="text-gray-400 text-xs">Грузоперевозки</p>
+            <p className="text-gray-400 text-xs">{t('nav.freight')}</p>
           </div>
         </div>
       </div>
@@ -64,7 +73,7 @@ export default function Sidebar() {
         {user?.role === 'superadmin' && (
           <>
             <div className="pt-4 pb-2">
-              <p className="text-gray-500 text-xs uppercase tracking-wider px-3">Администрация</p>
+              <p className="text-gray-500 text-xs uppercase tracking-wider px-3">{t('nav.admin')}</p>
             </div>
             {adminItems.map(({ to, icon: Icon, label }) => (
               <NavLink
@@ -97,13 +106,23 @@ export default function Sidebar() {
             <p className="text-gray-400 text-xs truncate">{user?.role}</p>
           </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-2 text-gray-400 hover:text-white text-sm transition w-full"
-        >
-          <LogOut size={16} />
-          Выйти
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 text-gray-400 hover:text-white text-sm transition"
+          >
+            <LogOut size={16} />
+            {t('nav.logout')}
+          </button>
+          <button
+            onClick={toggleLang}
+            title="Switch language"
+            className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition px-2 py-1 rounded hover:bg-gray-800"
+          >
+            <Globe size={13} />
+            {i18n.language === 'ru' ? 'EN' : 'RU'}
+          </button>
+        </div>
       </div>
     </aside>
   )

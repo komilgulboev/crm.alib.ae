@@ -1,0 +1,23 @@
+﻿# Alib CRM - build single exe (backend + frontend)
+# Usage: .\build.ps1
+# Output: backend\crm-server.exe
+
+$ErrorActionPreference = "Stop"
+$root = $PSScriptRoot
+
+Write-Host "=== 1/2  Building frontend ===" -ForegroundColor Cyan
+Set-Location "$root\frontend"
+npm ci --silent
+npm run build
+Write-Host "Frontend built -> backend\cmd\server\dist\" -ForegroundColor Green
+
+Write-Host "=== 2/2  Compiling binary ===" -ForegroundColor Cyan
+Set-Location "$root\backend"
+go build -tags embed -o crm-server.exe .\cmd\server
+Write-Host "Done: backend\crm-server.exe" -ForegroundColor Green
+
+Remove-Item "$root\backend\cmd\server\dist" -Recurse -Force
+
+Set-Location $root
+Write-Host ""
+Write-Host "Run: cd backend && .\crm-server.exe" -ForegroundColor Yellow

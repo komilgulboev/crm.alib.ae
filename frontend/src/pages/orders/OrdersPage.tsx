@@ -1,32 +1,17 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Search, PackageCheck, Banknote, FileText, Pencil } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { Plus, Search, PackageCheck, Banknote, FileText, Pencil, SlidersHorizontal } from 'lucide-react'
 import { ordersApi } from '../../api/orders'
+import { catalogsApi } from '../../api/catalogs'
 import { formatDate } from '../../lib/utils'
-import type { Order, OrderStatus } from '../../types'
+import type { Order } from '../../types'
 import CreateOrderModal from './CreateOrderModal'
 import RecordPaymentModal from './RecordPaymentModal'
 import IssueFromWarehouseModal from './IssueFromWarehouseModal'
 import InvoiceModal from './InvoiceModal'
 import EditOrderModal from './EditOrderModal'
 
-// ── Статусы ────────────────────────────────────────────────────────────────
-const STATUS_OPTIONS: { value: OrderStatus | ''; label: string }[] = [
-  { value: '', label: 'Все статусы' },
-  { value: 'new',                label: 'Новый' },
-  { value: 'collection_details', label: 'Collection Details' },
-  { value: 'warehouse',          label: 'На складе' },
-  { value: 'dispatched',         label: 'Dispatched' },
-  { value: 'in_transit',         label: 'In Transit' },
-  { value: 'customs',            label: 'Таможня' },
-  { value: 'departed',           label: 'Departed' },
-  { value: 'handed_over',        label: 'Handed Over' },
-  { value: 'arrived',            label: 'Arrived' },
-  { value: 'delivered',          label: 'Delivered' },
-  { value: 'completed',          label: 'Completed' },
-  { value: 'closed',             label: 'Closed' },
-  { value: 'problem',            label: 'Проблема' },
-]
 
 // ── Цвета статусов ─────────────────────────────────────────────────────────
 const STATUS_COLORS: Record<string, string> = {
@@ -62,7 +47,27 @@ const JOB_TYPE_COLORS: Record<string, string> = {
   'GEN':   'bg-gray-50 text-gray-600',
 }
 
+const PRIORITY_COLORS: Record<string, string> = {
+  ROUTINE:  'bg-gray-100 text-gray-500',
+  CRITICAL: 'bg-orange-100 text-orange-700',
+  AOG:      'bg-red-100 text-red-700 font-bold',
+  TOPAOG:   'bg-red-200 text-red-900 font-bold',
+}
+
+type ColKey = 'ref' | 'our_ref' | 'assigned' | 'supplier' | 'customer' | 'job_type' | 'org' | 'des' | 'ntr'
+  | 'pieces' | 'kg' | 'cwt' | 'status' | 'priority' | 'final_awb' | 'inv_usd' | 'inv_aed' | 'inv_status' | 'job_status' | 'date'
+
+const loadVisibleCols = (): Set<ColKey> => {
+  try {
+    const raw = localStorage.getItem('orders_visible_cols')
+    if (raw) return new Set(JSON.parse(raw) as ColKey[])
+  } catch { /* ignore */ }
+  return new Set<ColKey>(['ref','our_ref','assigned','supplier','customer','job_type','org','des','ntr',
+    'pieces','kg','cwt','status','priority','final_awb','inv_usd','inv_aed','inv_status','job_status','date'])
+}
+
 export default function OrdersPage() {
+  const { t } = useTranslation()
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('')
   const [jobStatusFilter, setJobStatusFilter] = useState<string>('')
@@ -72,6 +77,51 @@ export default function OrdersPage() {
   const [issueOrder, setIssueOrder] = useState<Order | null>(null)
   const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(loadVisibleCols)
+  const [colMenuOpen, setColMenuOpen] = useState(false)
+  const colMenuRef = useRef<HTMLDivElement>(null)
+
+  const ALL_COLUMNS: { key: ColKey; label: string }[] = [
+    { key: 'ref',        label: t('orders.cols.ref') },
+    { key: 'our_ref',    label: t('orders.cols.ourRef') },
+    { key: 'assigned',   label: t('orders.cols.assigned') },
+    { key: 'supplier',   label: t('orders.cols.supplier') },
+    { key: 'customer',   label: t('orders.cols.customer') },
+    { key: 'job_type',   label: t('orders.cols.jobType') },
+    { key: 'org',        label: t('orders.cols.org') },
+    { key: 'des',        label: t('orders.cols.des') },
+    { key: 'ntr',        label: t('orders.cols.ntr') },
+    { key: 'pieces',     label: t('orders.cols.pieces') },
+    { key: 'kg',         label: t('orders.cols.kg') },
+    { key: 'cwt',        label: t('orders.cols.cwt') },
+    { key: 'status',     label: t('orders.cols.status') },
+    { key: 'priority',   label: t('orders.cols.priority') },
+    { key: 'final_awb',  label: t('orders.cols.finalAwb') },
+    { key: 'inv_usd',    label: t('orders.cols.invUsd') },
+    { key: 'inv_aed',    label: t('orders.cols.invAed') },
+    { key: 'inv_status', label: t('orders.cols.invStatus') },
+    { key: 'job_status', label: t('orders.cols.jobStatus') },
+    { key: 'date',       label: t('orders.cols.date') },
+  ]
+
+  const toggleCol = (key: ColKey) => {
+    setVisibleCols(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      localStorage.setItem('orders_visible_cols', JSON.stringify([...next]))
+      return next
+    })
+  }
+  const col = (key: ColKey) => visibleCols.has(key)
+
+  const { data: statusCatalog = [] } = useQuery({
+    queryKey: ['catalogs', 'order_status'],
+    queryFn: () => catalogsApi.list('order_status', true).then(r => r.data),
+  })
+
+  const statusLabel = (value: string) =>
+    statusCatalog.find(s => s.value === value)?.label || value
 
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['orders', statusFilter, jobTypeFilter, jobStatusFilter],
@@ -103,13 +153,52 @@ export default function OrdersPage() {
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-900">Заказы</h1>
-        <button
-          onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition"
-        >
-          <Plus size={16} /> Новый заказ
-        </button>
+        <h1 className="text-2xl font-bold text-gray-900">{t('orders.title')}</h1>
+        <div className="flex items-center gap-2">
+          <div className="relative" ref={colMenuRef}>
+            <button
+              onClick={() => setColMenuOpen(p => !p)}
+              className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-lg text-sm transition"
+              title={t('orders.columns')}
+            >
+              <SlidersHorizontal size={15} /> {t('orders.columns')}
+            </button>
+            {colMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 p-3 w-52">
+                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">{t('orders.visibleColumns')}</p>
+                <div className="space-y-1 max-h-72 overflow-y-auto">
+                  {ALL_COLUMNS.map(c => (
+                    <label key={c.key} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                      <input
+                        type="checkbox"
+                        checked={visibleCols.has(c.key)}
+                        onChange={() => toggleCol(c.key)}
+                        className="accent-blue-600"
+                      />
+                      <span className="text-sm text-gray-700">{c.label}</span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    const all = new Set(ALL_COLUMNS.map(c => c.key))
+                    setVisibleCols(all)
+                    localStorage.setItem('orders_visible_cols', JSON.stringify([...all]))
+                  }}
+                  className="mt-2 w-full text-xs text-blue-600 hover:underline text-left px-2"
+                >
+                  {t('orders.showAll')}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition"
+          >
+            <Plus size={16} /> {t('orders.newOrder')}
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -119,19 +208,20 @@ export default function OrdersPage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="REF#, OUR REF, клиент, AWB..."
+            placeholder={t('orders.searchPlaceholder')}
             className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-          {STATUS_OPTIONS.map(o => (
+          <option value="">{t('orders.allStatuses')}</option>
+          {statusCatalog.map(o => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
         <select value={jobTypeFilter} onChange={e => setJobTypeFilter(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">Все типы</option>
+          <option value="">{t('orders.allTypes')}</option>
           <option value="T-IN">T-IN</option>
           <option value="L-EXP">L-EXP</option>
           <option value="T-OUT">T-OUT</option>
@@ -140,7 +230,7 @@ export default function OrdersPage() {
         </select>
         <select value={jobStatusFilter} onChange={e => setJobStatusFilter(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="">OPEN + CLOSED</option>
+          <option value="">{t('orders.allJobStatuses')}</option>
           <option value="OPEN">OPEN</option>
           <option value="CLOSED">CLOSED</option>
         </select>
@@ -148,7 +238,7 @@ export default function OrdersPage() {
           <button
             onClick={() => { setStatusFilter(''); setJobTypeFilter(''); setJobStatusFilter(''); setSearch('') }}
             className="px-3 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-            Сбросить
+            {t('orders.reset')}
           </button>
         )}
       </div>
@@ -156,33 +246,34 @@ export default function OrdersPage() {
       {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-400">Загрузка...</div>
+          <div className="p-8 text-center text-gray-400">{t('common.loading')}</div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">Заказов не найдено</div>
+          <div className="p-8 text-center text-gray-400">{t('orders.noOrders')}</div>
         ) : (
-          <table className="w-full text-xs min-w-[1400px]">
+          <table className="w-full text-xs min-w-[800px]">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-3 py-2.5 font-semibold text-gray-500 w-6">#</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">REF#</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">OUR REF</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">ASSIGNED</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">SUPPLIER</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">CUSTOMER</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">JOB TYPE</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">ORG</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">DES</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">NTR</th>
-                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">#PC</th>
-                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">KG</th>
-                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">CWT</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">STATUS</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">FINAL AWB</th>
-                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">INV (USD)</th>
-                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">INV (AED)</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Inv Status</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">JOB</th>
-                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">Дата</th>
+                {col('ref')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ref')}</th>}
+                {col('our_ref')    && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ourRef')}</th>}
+                {col('assigned')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.assigned')}</th>}
+                {col('supplier')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.supplier')}</th>}
+                {col('customer')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.customer')}</th>}
+                {col('job_type')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.jobType')}</th>}
+                {col('org')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.org')}</th>}
+                {col('des')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.des')}</th>}
+                {col('ntr')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ntr')}</th>}
+                {col('pieces')     && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.pieces')}</th>}
+                {col('kg')         && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.kg')}</th>}
+                {col('cwt')        && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.cwt')}</th>}
+                {col('status')     && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.status')}</th>}
+                {col('priority')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.priority')}</th>}
+                {col('final_awb')  && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.finalAwb')}</th>}
+                {col('inv_usd')    && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invUsd')}</th>}
+                {col('inv_aed')    && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invAed')}</th>}
+                {col('inv_status') && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invStatus')}</th>}
+                {col('job_status') && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.jobStatus')}</th>}
+                {col('date')       && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.date')}</th>}
                 <th className="px-3 py-2.5 w-24"></th>
               </tr>
             </thead>
@@ -194,138 +285,119 @@ export default function OrdersPage() {
                   }`}
                 >
                   <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
-
-                  {/* REF# */}
-                  <td className="px-3 py-2">
-                    <span className="font-mono font-medium text-blue-600 text-xs">
-                      {order.tracking_number}
-                    </span>
-                  </td>
-
-                  {/* OUR REF */}
-                  <td className="px-3 py-2 text-gray-600 max-w-[120px] truncate">
-                    {order.our_ref || '—'}
-                  </td>
-
-                  {/* ASSIGNED */}
-                  <td className="px-3 py-2 text-gray-700">
-                    {order.assigned_to?.name || '—'}
-                  </td>
-
-                  {/* SUPPLIER */}
-                  <td className="px-3 py-2 text-gray-700 max-w-[100px] truncate">
-                    {order.supplier || '—'}
-                  </td>
-
-                  {/* CUSTOMER */}
-                  <td className="px-3 py-2 font-medium text-gray-900">
-                    {order.client?.name || '—'}
-                  </td>
-
-                  {/* JOB TYPE */}
-                  <td className="px-3 py-2">
-                    {order.job_type ? (
+                  {col('ref') && (
+                    <td className="px-3 py-2">
+                      <span className="font-mono font-medium text-blue-600 text-xs">{order.tracking_number}</span>
+                    </td>
+                  )}
+                  {col('our_ref') && (
+                    <td className="px-3 py-2 text-gray-600 max-w-[120px] truncate">{order.our_ref || '—'}</td>
+                  )}
+                  {col('assigned') && (
+                    <td className="px-3 py-2 text-gray-700">{order.assigned_to?.name || '—'}</td>
+                  )}
+                  {col('supplier') && (
+                    <td className="px-3 py-2 text-gray-700 max-w-[100px] truncate">{order.supplier || '—'}</td>
+                  )}
+                  {col('customer') && (
+                    <td className="px-3 py-2 font-medium text-gray-900">{order.client?.name || '—'}</td>
+                  )}
+                  {col('job_type') && (
+                    <td className="px-3 py-2">
+                      {order.job_type ? (
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${JOB_TYPE_COLORS[order.job_type] || 'bg-gray-100 text-gray-600'}`}>
+                          {order.job_type}
+                        </span>
+                      ) : '—'}
+                    </td>
+                  )}
+                  {col('org') && <td className="px-3 py-2 font-mono text-gray-700">{order.origin_city || '—'}</td>}
+                  {col('des') && <td className="px-3 py-2 font-mono text-gray-700">{order.dest_city || '—'}</td>}
+                  {col('ntr') && (
+                    <td className="px-3 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${NTR_COLORS[order.ntr] || 'bg-gray-100 text-gray-600'}`}>
+                        {order.ntr || 'GEN'}
+                      </span>
+                    </td>
+                  )}
+                  {col('pieces') && <td className="px-3 py-2 text-right text-gray-700">{order.pieces || '—'}</td>}
+                  {col('kg') && (
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      {order.weight_kg ? order.weight_kg.toFixed(1) : '—'}
+                    </td>
+                  )}
+                  {col('cwt') && (
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      {order.chargeable_weight ? order.chargeable_weight.toFixed(1) : '—'}
+                    </td>
+                  )}
+                  {col('status') && (
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {statusLabel(order.status)}
+                      </span>
+                    </td>
+                  )}
+                  {col('priority') && (
+                    <td className="px-3 py-2">
+                      {order.priority && order.priority !== 'ROUTINE' ? (
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${PRIORITY_COLORS[order.priority] || 'bg-gray-100 text-gray-600'}`}>
+                          {order.priority}
+                        </span>
+                      ) : <span className="text-gray-400 text-xs">—</span>}
+                    </td>
+                  )}
+                  {col('final_awb') && (
+                    <td className="px-3 py-2 font-mono text-gray-600">{order.final_awb || '—'}</td>
+                  )}
+                  {col('inv_usd') && (
+                    <td className="px-3 py-2 text-right font-medium text-gray-800">
+                      {order.inv_amount_usd ? `$${order.inv_amount_usd.toLocaleString()}` : '—'}
+                    </td>
+                  )}
+                  {col('inv_aed') && (
+                    <td className="px-3 py-2 text-right text-gray-700">
+                      {order.inv_amount_aed ? `AED${order.inv_amount_aed.toLocaleString()}` : '—'}
+                    </td>
+                  )}
+                  {col('inv_status') && (
+                    <td className="px-3 py-2">
+                      {order.invoice_status ? (
+                        <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-xs">{order.invoice_status}</span>
+                      ) : '—'}
+                    </td>
+                  )}
+                  {col('job_status') && (
+                    <td className="px-3 py-2">
                       <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                        JOB_TYPE_COLORS[order.job_type] || 'bg-gray-100 text-gray-600'
+                        order.job_status === 'OPEN' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
                       }`}>
-                        {order.job_type}
+                        {order.job_status || 'OPEN'}
                       </span>
-                    ) : '—'}
-                  </td>
-
-                  {/* ORG → DES */}
-                  <td className="px-3 py-2 font-mono text-gray-700">{order.origin_city || '—'}</td>
-                  <td className="px-3 py-2 font-mono text-gray-700">{order.dest_city || '—'}</td>
-
-                  {/* NTR */}
-                  <td className="px-3 py-2">
-                    <span className={`px-1.5 py-0.5 rounded text-xs ${
-                      NTR_COLORS[order.ntr] || 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {order.ntr || 'GEN'}
-                    </span>
-                  </td>
-
-                  {/* #PC / KG / CWT */}
-                  <td className="px-3 py-2 text-right text-gray-700">{order.pieces || '—'}</td>
-                  <td className="px-3 py-2 text-right text-gray-700">
-                    {order.weight_kg ? order.weight_kg.toFixed(1) : '—'}
-                  </td>
-                  <td className="px-3 py-2 text-right text-gray-700">
-                    {order.chargeable_weight ? order.chargeable_weight.toFixed(1) : '—'}
-                  </td>
-
-                  {/* STATUS */}
-                  <td className="px-3 py-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {STATUS_OPTIONS.find(s => s.value === order.status)?.label || order.status}
-                    </span>
-                  </td>
-
-                  {/* FINAL AWB */}
-                  <td className="px-3 py-2 font-mono text-gray-600">
-                    {order.final_awb || '—'}
-                  </td>
-
-                  {/* INV AMOUNT USD / AED */}
-                  <td className="px-3 py-2 text-right font-medium text-gray-800">
-                    {order.inv_amount_usd ? `$${order.inv_amount_usd.toLocaleString()}` : '—'}
-                  </td>
-                  <td className="px-3 py-2 text-right text-gray-700">
-                    {order.inv_amount_aed
-                      ? `AED${order.inv_amount_aed.toLocaleString()}`
-                      : '—'}
-                  </td>
-
-                  {/* Invoice Status */}
-                  <td className="px-3 py-2">
-                    {order.invoice_status ? (
-                      <span className="px-1.5 py-0.5 bg-green-50 text-green-700 rounded text-xs">
-                        {order.invoice_status}
-                      </span>
-                    ) : '—'}
-                  </td>
-
-                  {/* JOB STATUS */}
-                  <td className="px-3 py-2">
-                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                      order.job_status === 'OPEN'
-                        ? 'bg-green-50 text-green-700'
-                        : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {order.job_status || 'OPEN'}
-                    </span>
-                  </td>
-
-                  {/* Дата */}
-                  <td className="px-3 py-2 text-gray-500">{formatDate(order.created_at)}</td>
-
-                  {/* Actions */}
+                    </td>
+                  )}
+                  {col('date') && (
+                    <td className="px-3 py-2 text-gray-500">{formatDate(order.created_at)}</td>
+                  )}
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-0.5">
                       {order.status === 'warehouse' && (
-                        <button onClick={() => setIssueOrder(order)}
-                          title="Выдача со склада"
+                        <button onClick={() => setIssueOrder(order)} title={t('orders.issueFromWarehouse')}
                           className="p-1.5 rounded text-yellow-600 hover:bg-yellow-50 transition">
                           <PackageCheck size={14} />
                         </button>
                       )}
                       {order.payment_status !== 'paid' && (
-                        <button onClick={() => setPaymentOrder(order)}
-                          title="Принять оплату"
+                        <button onClick={() => setPaymentOrder(order)} title={t('orders.recordPayment')}
                           className="p-1.5 rounded text-green-600 hover:bg-green-50 transition">
                           <Banknote size={14} />
                         </button>
                       )}
-                      <button onClick={() => setInvoiceOrder(order)}
-                        title="Инвойс"
+                      <button onClick={() => setInvoiceOrder(order)} title={t('orders.invoice')}
                         className="p-1.5 rounded text-purple-600 hover:bg-purple-50 transition">
                         <FileText size={14} />
                       </button>
-                      <button onClick={() => setEditOrder(order)}
-                        title="Редактировать"
+                      <button onClick={() => setEditOrder(order)} title={t('orders.editOrder')}
                         className="p-1.5 rounded text-gray-500 hover:bg-gray-100 transition">
                         <Pencil size={14} />
                       </button>

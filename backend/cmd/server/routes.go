@@ -19,6 +19,8 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 	bankAccountHandler := handlers.NewBankAccountHandler(db)
 	invoiceHandler := handlers.NewInvoiceHandler(db)
 	fileHandler := handlers.NewFileHandler(db, minio, cfg.AnthropicKey)
+	catalogHandler := handlers.NewCatalogHandler(db)
+	orderNoteHandler := handlers.NewOrderNoteHandler(db)
 
 	api := r.Group("/api/v1")
 
@@ -58,6 +60,10 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 	orders.PATCH("/:id/status", orderHandler.UpdateStatus)
 	orders.POST("/:id/issue", middleware.RequireRoles(models.RoleSuperAdmin, models.RoleManager, models.RoleWarehouse), orderHandler.IssueFromWarehouse)
 	orders.DELETE("/:id", middleware.RequireRoles(models.RoleSuperAdmin), orderHandler.Delete)
+	orders.GET("/:id/logs", orderHandler.GetLogs)
+	orders.GET("/:id/notes", orderNoteHandler.List)
+	orders.POST("/:id/notes", orderNoteHandler.Create)
+	orders.DELETE("/:id/notes/:note_id", orderNoteHandler.Delete)
 
 	// Платежи
 	payments := protected.Group("/payments")
@@ -85,6 +91,13 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 		middleware.RequireRoles(models.RoleSuperAdmin, models.RoleManager, models.RoleAccountant),
 		fileHandler.UploadAWB,
 	)
+
+	// Каталоги
+	catalogs := protected.Group("/catalogs")
+	catalogs.GET("", catalogHandler.List)
+	catalogs.POST("", middleware.RequireRoles(models.RoleSuperAdmin), catalogHandler.Create)
+	catalogs.PUT("/:id", middleware.RequireRoles(models.RoleSuperAdmin), catalogHandler.Update)
+	catalogs.DELETE("/:id", middleware.RequireRoles(models.RoleSuperAdmin), catalogHandler.Delete)
 
 	// Дашборд / статистика
 	protected.GET("/dashboard/stats", orderHandler.DashboardStats)

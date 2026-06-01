@@ -18,8 +18,40 @@ export type OrderStatus =
   | 'departed'
   | 'collection_details'
 
-export type JobType = 'T-IN' | 'L-EXP' | 'T-OUT' | 'T-EXP' | 'GEN' | ''
-export type NTR = 'GEN' | 'DG' | 'PER' | 'VAL' | 'EAP' | ''
+export type JobType = string
+
+export interface OrderNote {
+  id: number
+  created_at: string
+  order_id: number
+  user_id: number
+  user: User
+  text: string
+}
+
+export interface OrderLog {
+  id: number
+  created_at: string
+  order_id: number
+  user_id: number
+  user: User
+  action: 'created' | 'updated'
+  field: string
+  old_value: string
+  new_value: string
+}
+
+export interface CatalogEntry {
+  id: number
+  type: string
+  value: string
+  label: string
+  sort_order: number
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+export type NTR = string
 
 export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'crypto'
 
@@ -143,6 +175,7 @@ export interface Order {
 
   // Тип и маршрут
   job_type: JobType         // T-IN | L-EXP | T-OUT | T-EXP
+  flight_type: 'charter' | 'regular' | ''
   origin_country: string
   origin_city: string       // ORG
   dest_country: string
@@ -189,6 +222,9 @@ export interface Order {
 
   paid_amount: number
   payment_status: 'unpaid' | 'partial' | 'paid'
+
+  // Приоритет
+  priority: string          // AOG | TOPAOG | ROUTINE | CRITICAL
 
   // Прочее
   cx_notified: boolean      // CX NOTIFIED

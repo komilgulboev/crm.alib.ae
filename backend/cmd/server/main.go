@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/alib/crm/config"
 	"github.com/alib/crm/internal/models"
@@ -39,8 +41,62 @@ func main() {
 		&models.Invoice{},
 		&models.InvoiceLineItem{},
 		&models.AWBData{},
+		&models.CatalogEntry{},
+		&models.OrderLog{},
+		&models.OrderNote{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Seed job_type catalog if empty
+	var jobTypeCount int64
+	db.Model(&models.CatalogEntry{}).Where("type = ?", "job_type").Count(&jobTypeCount)
+	if jobTypeCount == 0 {
+		seeds := []models.CatalogEntry{
+			{Type: "job_type", Value: "T-IN",  Label: "T-IN — Transport Import",  SortOrder: 1, Active: true},
+			{Type: "job_type", Value: "L-EXP", Label: "L-EXP — Local Export",     SortOrder: 2, Active: true},
+			{Type: "job_type", Value: "T-OUT", Label: "T-OUT — Transport Out",     SortOrder: 3, Active: true},
+			{Type: "job_type", Value: "T-EXP", Label: "T-EXP — Transport Export",  SortOrder: 4, Active: true},
+			{Type: "job_type", Value: "GEN",   Label: "GEN — General",             SortOrder: 5, Active: true},
+		}
+		db.Create(&seeds)
+	}
+
+	// Seed order_status catalog if empty
+	var statusCount int64
+	db.Model(&models.CatalogEntry{}).Where("type = ?", "order_status").Count(&statusCount)
+	if statusCount == 0 {
+		seeds := []models.CatalogEntry{
+			{Type: "order_status", Value: "new",                Label: "Новый",             SortOrder: 1,  Active: true},
+			{Type: "order_status", Value: "accepted",           Label: "Принят",            SortOrder: 2,  Active: true},
+			{Type: "order_status", Value: "collection_details", Label: "Collection Details", SortOrder: 3,  Active: true},
+			{Type: "order_status", Value: "warehouse",          Label: "На складе",         SortOrder: 4,  Active: true},
+			{Type: "order_status", Value: "dispatched",         Label: "Отправлен",         SortOrder: 5,  Active: true},
+			{Type: "order_status", Value: "in_transit",         Label: "В пути",            SortOrder: 6,  Active: true},
+			{Type: "order_status", Value: "customs",            Label: "На таможне",        SortOrder: 7,  Active: true},
+			{Type: "order_status", Value: "departed",           Label: "Departed",          SortOrder: 8,  Active: true},
+			{Type: "order_status", Value: "arrived",            Label: "Arrived",           SortOrder: 9,  Active: true},
+			{Type: "order_status", Value: "handed_over",        Label: "Handed Over",       SortOrder: 10, Active: true},
+			{Type: "order_status", Value: "delivered",          Label: "Доставлен",         SortOrder: 11, Active: true},
+			{Type: "order_status", Value: "completed",          Label: "Completed",         SortOrder: 12, Active: true},
+			{Type: "order_status", Value: "closed",             Label: "Closed",            SortOrder: 13, Active: true},
+			{Type: "order_status", Value: "problem",            Label: "Проблема",          SortOrder: 14, Active: true},
+		}
+		db.Create(&seeds)
+	}
+
+	// Seed ntr catalog if empty
+	var ntrCount int64
+	db.Model(&models.CatalogEntry{}).Where("type = ?", "ntr").Count(&ntrCount)
+	if ntrCount == 0 {
+		seeds := []models.CatalogEntry{
+			{Type: "ntr", Value: "GEN", Label: "GEN — General",              SortOrder: 1, Active: true},
+			{Type: "ntr", Value: "DG",  Label: "DG — Dangerous Goods",       SortOrder: 2, Active: true},
+			{Type: "ntr", Value: "PER", Label: "PER — Perishables",           SortOrder: 3, Active: true},
+			{Type: "ntr", Value: "VAL", Label: "VAL — Valuables",             SortOrder: 4, Active: true},
+			{Type: "ntr", Value: "EAP", Label: "EAP — Express Air Parcel",    SortOrder: 5, Active: true},
+		}
+		db.Create(&seeds)
 	}
 
 	// Убираем NOT NULL с полей которые стали необязательными
@@ -70,12 +126,37 @@ func main() {
 
 	setupRoutes(r, db, cfg, minioClient)
 
-	// Раздача фронтенда из папки dist (рядом с бинарником)
-	if _, err := os.Stat("./dist"); err == nil {
+	// Раздача фронтенда
+	if useEmbedded {
+		// Продакшн: фронтенд встроен в бинарник
+		sub, _ := fs.Sub(staticFiles, "dist")
+		fileServer := http.FileServer(http.FS(sub))
+		r.NoRoute(func(c *gin.Context) {
+			path := c.Request.URL.Path
+			if strings.HasPrefix(path, "/api") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			// Проверяем, существует ли файл в embedded FS
+			cleanPath := strings.TrimPrefix(path, "/")
+			if cleanPath == "" {
+				cleanPath = "index.html"
+			}
+			f, err := sub.Open(cleanPath)
+			if err != nil {
+				// SPA: все неизвестные пути → index.html
+				data, _ := staticFiles.ReadFile("dist/index.html")
+				c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+				return
+			}
+			f.Close()
+			fileServer.ServeHTTP(c.Writer, c.Request)
+		})
+	} else if _, err := os.Stat("./dist"); err == nil {
+		// Разработка: раздача из папки dist рядом с бинарником
 		r.Static("/assets", "./dist/assets")
 		r.StaticFile("/favicon.svg", "./dist/favicon.svg")
 		r.NoRoute(func(c *gin.Context) {
-			// API-роуты — вернуть 404 как есть
 			if len(c.Request.URL.Path) > 4 && c.Request.URL.Path[:4] == "/api" {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return

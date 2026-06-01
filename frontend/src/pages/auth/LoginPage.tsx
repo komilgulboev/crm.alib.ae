@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { authApi } from '../../api/auth'
 import { useAuthStore } from '../../store/auth'
 
 export default function LoginPage() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -20,7 +22,7 @@ export default function LoginPage() {
       setAuth(res.data.user, res.data.token)
       navigate('/')
     } catch {
-      setError('Неверный email или пароль')
+      setError(t('login.error'))
     } finally {
       setLoading(false)
     }
@@ -31,7 +33,7 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Alib CRM</h1>
-          <p className="text-gray-500 mt-1">Система управления грузоперевозками</p>
+          <p className="text-gray-500 mt-1">{t('login.subtitle')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -47,7 +49,7 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('login.password')}</label>
             <input
               type="password"
               value={password}
@@ -62,7 +64,7 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition disabled:opacity-50"
           >
-            {loading ? 'Вход...' : 'Войти'}
+            {loading ? t('login.submitting') : t('login.submit')}
           </button>
         </form>
       </div>

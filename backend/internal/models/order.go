@@ -55,7 +55,8 @@ type Order struct {
 	PaymentTiming  string      `gorm:"default:'on_dispatch'" json:"payment_timing"`
 
 	// ── Тип и маршрут (JOB TYPE, ORG, DES) ───────────────────────────────────
-	JobType       string `json:"job_type"`       // T-IN | L-EXP | T-OUT | T-EXP | GEN
+	JobType       string `json:"job_type"`        // T-IN | L-EXP | T-OUT | T-EXP | GEN
+	FlightType    string `json:"flight_type"`     // charter | regular
 	OriginCountry string `json:"origin_country"` // страна (необязательно)
 	OriginCity    string `json:"origin_city"`    // ORG (аэропорт: DXB, MAN, TOO...)
 	DestCountry   string `json:"dest_country"`
@@ -104,6 +105,9 @@ type Order struct {
 
 	PaidAmount    float64 `gorm:"default:0" json:"paid_amount"`
 	PaymentStatus string  `gorm:"default:'unpaid'" json:"payment_status"`
+
+	// ── Приоритет ─────────────────────────────────────────────────────────────
+	Priority string `gorm:"default:'ROUTINE'" json:"priority"` // AOG | TOPAOG | ROUTINE | CRITICAL
 
 	// ── Уведомления ───────────────────────────────────────────────────────────
 	CXNotified bool   `gorm:"default:false" json:"cx_notified"` // CX NOTIFIED

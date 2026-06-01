@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Printer, ArrowLeft, FileText } from 'lucide-react'
 import Modal from '../../components/ui/Modal'
 import { invoicesApi, type CreateInvoicePayload } from '../../api/invoices'
@@ -26,6 +27,7 @@ const todayISO = () => new Date().toISOString().split('T')[0]
 
 // ─── InvoiceView ─────────────────────────────────────────────────────────────
 function InvoiceView({ invoice }: { invoice: Invoice }) {
+  const { t } = useTranslation()
   const printRef = useRef<HTMLDivElement>(null)
 
   const handlePrint = () => {
@@ -55,7 +57,7 @@ function InvoiceView({ invoice }: { invoice: Invoice }) {
           className="flex items-center gap-2 px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm rounded-lg transition"
         >
           <Printer size={15} />
-          Распечатать
+          {t('invoice.print')}
         </button>
       </div>
 
@@ -77,9 +79,9 @@ function InvoiceView({ invoice }: { invoice: Invoice }) {
             <p className="text-gray-500 text-xs">{COMPANY.phone}, {COMPANY.email}</p>
           </div>
 
-          {/* TAX INVOICE block */}
+          {/* INVOICE block */}
           <div className="text-right">
-            <h1 className="text-3xl font-bold text-green-700 tracking-wide">TAX INVOICE</h1>
+            <h1 className="text-3xl font-bold text-green-700 tracking-wide">INVOICE</h1>
             <p className="text-gray-600 text-sm mt-1"># {invoice.invoice_number}</p>
             <div className="mt-3">
               <p className="text-xs text-gray-500 uppercase tracking-wider">Balance Due</p>
@@ -143,8 +145,7 @@ function InvoiceView({ invoice }: { invoice: Invoice }) {
               <th className="text-left px-3 py-2">Item &amp; Description</th>
               <th className="text-right px-3 py-2 w-16">Qty</th>
               <th className="text-right px-3 py-2 w-24">Rate</th>
-              <th className="text-right px-3 py-2 w-28">Taxable Amount</th>
-              <th className="text-right px-3 py-2 w-24">Tax</th>
+              <th className="text-right px-3 py-2 w-28">Amount</th>
               <th className="text-right px-3 py-2 w-28">Amount ({invoice.currency})</th>
             </tr>
           </thead>
@@ -156,10 +157,6 @@ function InvoiceView({ invoice }: { invoice: Invoice }) {
                 <td className="px-3 py-2.5 text-right text-gray-700">{item.quantity.toFixed(2)}</td>
                 <td className="px-3 py-2.5 text-right text-gray-700">{fmt(item.rate)}</td>
                 <td className="px-3 py-2.5 text-right text-gray-700">{fmt(item.taxable_amount)}</td>
-                <td className="px-3 py-2.5 text-right text-gray-700">
-                  {fmt(item.tax_amount)}
-                  <span className="block text-gray-400">{item.tax_rate.toFixed(2)}%</span>
-                </td>
                 <td className="px-3 py-2.5 text-right font-medium text-gray-900">{fmt(item.amount)}</td>
               </tr>
             ))}
@@ -169,18 +166,17 @@ function InvoiceView({ invoice }: { invoice: Invoice }) {
             <tr className="border-t border-gray-200">
               <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">Sub Total</td>
               <td className="px-3 py-2 text-right text-gray-700">{fmt(invoice.sub_total)}</td>
-              <td className="px-3 py-2 text-right text-gray-700">{fmt(invoice.tax_amount)}</td>
               <td className="px-3 py-2 text-right font-medium text-gray-900">{fmt(invoice.total_amount)}</td>
             </tr>
             <tr className="border-t border-gray-300">
-              <td colSpan={5} />
+              <td colSpan={4} />
               <td className="px-3 py-2 text-right font-bold text-gray-800">Total</td>
               <td className="px-3 py-2 text-right font-bold text-gray-900">
                 {invoice.currency}{fmt(invoice.total_amount)}
               </td>
             </tr>
             <tr className="bg-gray-50">
-              <td colSpan={5} />
+              <td colSpan={4} />
               <td className="px-3 py-2 text-right font-bold text-gray-800">Balance Due</td>
               <td className="px-3 py-2 text-right font-bold text-gray-900">
                 {invoice.currency}{fmt(invoice.total_amount)}
@@ -240,6 +236,7 @@ interface Props {
 }
 
 export default function InvoiceModal({ order, onClose }: Props) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<'create' | 'view'>('create')
   const [currentInvoice, setCurrentInvoice] = useState<Invoice | null>(null)
@@ -300,7 +297,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
       setCurrentInvoice(res.data)
       setMode('view')
     },
-    onError: () => setError('Ошибка при создании инвойса'),
+    onError: () => setError(t('invoice.errorCreate')),
   })
 
   const calcTotals = () => {
@@ -314,9 +311,9 @@ export default function InvoiceModal({ order, onClose }: Props) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!order) return
-    if (items.length === 0) { setError('Добавьте хотя бы одну позицию'); return }
+    if (items.length === 0) { setError(t('invoice.errorNoItems')); return }
     if (!acceptsCash && selectedBanks.length === 0) {
-      setError('Выберите способ оплаты: наличные или банковский счёт')
+      setError(t('invoice.errorNoPayment'))
       return
     }
     setError('')
@@ -359,13 +356,13 @@ export default function InvoiceModal({ order, onClose }: Props) {
   const labelCls = 'block text-xs font-medium text-gray-600 mb-1'
 
   const title = mode === 'view' && currentInvoice
-    ? `Инвойс ${currentInvoice.invoice_number}`
-    : `Создать инвойс — ${order?.tracking_number ?? ''}`
+    ? `${t('invoice.title')} ${currentInvoice.invoice_number}`
+    : `${t('invoice.createTitle')} — ${order?.tracking_number ?? ''}`
 
   return (
     <Modal open={open} onClose={onClose} title={title} size="xl">
       {loadingInvoices ? (
-        <div className="py-12 text-center text-gray-400">Загрузка...</div>
+        <div className="py-12 text-center text-gray-400">{t('invoice.loading')}</div>
       ) : mode === 'view' && currentInvoice ? (
         <div>
           {/* Switch between invoices or create new */}
@@ -391,7 +388,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
               onClick={() => { setMode('create'); setCurrentInvoice(null) }}
               className="ml-auto flex items-center gap-1.5 text-xs text-blue-600 hover:underline"
             >
-              <Plus size={13} /> Новый инвойс
+              <Plus size={13} /> {t('invoice.newInvoice')}
             </button>
           </div>
           <InvoiceView invoice={currentInvoice} />
@@ -406,14 +403,14 @@ export default function InvoiceModal({ order, onClose }: Props) {
               className="flex items-center gap-1.5 text-xs text-blue-600 hover:underline"
             >
               <ArrowLeft size={13} />
-              <FileText size={13} /> Посмотреть существующий ({existingInvoices[0].invoice_number})
+              <FileText size={13} /> {t('invoice.viewExisting')} ({existingInvoices[0].invoice_number})
             </button>
           )}
 
           {/* Invoice meta */}
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className={labelCls}>Дата инвойса</label>
+              <label className={labelCls}>{t('invoice.invoiceDate')}</label>
               <input
                 type="date"
                 value={invoiceDate}
@@ -422,7 +419,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
               />
             </div>
             <div>
-              <label className={labelCls}>Срок оплаты</label>
+              <label className={labelCls}>{t('invoice.dueDate')}</label>
               <input
                 type="date"
                 value={dueDate}
@@ -431,7 +428,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
               />
             </div>
             <div>
-              <label className={labelCls}>Условия</label>
+              <label className={labelCls}>{t('invoice.terms')}</label>
               <input
                 value={terms}
                 onChange={e => setTerms(e.target.value)}
@@ -440,13 +437,13 @@ export default function InvoiceModal({ order, onClose }: Props) {
               />
             </div>
             <div>
-              <label className={labelCls}>Валюта</label>
+              <label className={labelCls}>{t('invoice.currency')}</label>
               <select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>
                 {['AED', 'USD', 'EUR', 'TJS', 'RUB'].map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelCls}>НДС (%)</label>
+              <label className={labelCls}>{t('invoice.taxRate')}</label>
               <input
                 type="number"
                 min="0"
@@ -458,7 +455,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
               />
             </div>
             <div>
-              <label className={labelCls}>Оплачиваемый вес</label>
+              <label className={labelCls}>{t('invoice.chargeableWeight')}</label>
               <input
                 type="number"
                 min="0"
@@ -473,13 +470,13 @@ export default function InvoiceModal({ order, onClose }: Props) {
           {/* Line items */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Позиции</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t('invoice.items')}</p>
               <button
                 type="button"
                 onClick={addItem}
                 className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
               >
-                <Plus size={13} /> Добавить позицию
+                <Plus size={13} /> {t('invoice.addItem')}
               </button>
             </div>
             <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -487,12 +484,12 @@ export default function InvoiceModal({ order, onClose }: Props) {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="text-left px-3 py-2 font-medium text-gray-600 w-8">#</th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600">Описание</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-20">Кол-во</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">Ставка</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">Без НДС</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-24">НДС</th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">Итого</th>
+                    <th className="text-left px-3 py-2 font-medium text-gray-600">{t('invoice.colDescription')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-20">{t('invoice.colQty')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">{t('invoice.colRate')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">{t('invoice.colTaxable')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-24">{t('invoice.colTax')}</th>
+                    <th className="text-right px-3 py-2 font-medium text-gray-600 w-28">{t('invoice.colTotal')}</th>
                     <th className="w-8"></th>
                   </tr>
                 </thead>
@@ -508,7 +505,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
                             value={it.description}
                             onChange={e => setItem(i, 'description', e.target.value)}
                             className="w-full border-0 focus:outline-none text-xs"
-                            placeholder="Описание услуги"
+                            placeholder={t('invoice.descPlaceholder')}
                           />
                         </td>
                         <td className="px-3 py-1.5">
@@ -550,7 +547,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
                   {items.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-3 py-3 text-center text-gray-400">
-                        Нет позиций
+                        {t('invoice.noItems')}
                       </td>
                     </tr>
                   )}
@@ -562,15 +559,15 @@ export default function InvoiceModal({ order, onClose }: Props) {
             <div className="flex justify-end mt-2 text-xs space-y-0.5">
               <div className="w-56 space-y-1">
                 <div className="flex justify-between text-gray-600">
-                  <span>Итого без НДС:</span>
+                  <span>{t('invoice.subtotalNoTax')}</span>
                   <span>{currency} {fmt(subTotal)}</span>
                 </div>
                 <div className="flex justify-between text-gray-600">
-                  <span>НДС ({taxRate}%):</span>
+                  <span>{t('invoice.taxLine', { rate: taxRate })}</span>
                   <span>{currency} {fmt(taxAmt)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-gray-900 border-t pt-1">
-                  <span>Всего:</span>
+                  <span>{t('invoice.grandTotal')}</span>
                   <span>{currency} {fmt(total)}</span>
                 </div>
               </div>
@@ -580,7 +577,7 @@ export default function InvoiceModal({ order, onClose }: Props) {
           {/* Payment methods */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Способ оплаты
+              {t('invoice.paymentMethod')}
             </p>
             <div className="space-y-2">
               {/* Cash */}
@@ -594,15 +591,15 @@ export default function InvoiceModal({ order, onClose }: Props) {
                   className="accent-green-600"
                 />
                 <div>
-                  <p className="text-sm font-medium text-gray-900">Наличные</p>
-                  <p className="text-xs text-gray-500">Оплата наличными при получении</p>
+                  <p className="text-sm font-medium text-gray-900">{t('invoice.cash')}</p>
+                  <p className="text-xs text-gray-500">{t('invoice.cashDesc')}</p>
                 </div>
               </label>
 
               {/* Bank accounts */}
               {bankAccounts.length === 0 ? (
                 <p className="text-xs text-gray-400 px-1">
-                  Нет банковских счетов. Добавьте их в разделе «Банки».
+                  {t('invoice.noBanks')}
                 </p>
               ) : (
                 bankAccounts.map(acc => (
@@ -637,13 +634,13 @@ export default function InvoiceModal({ order, onClose }: Props) {
 
           {/* Notes */}
           <div>
-            <label className={labelCls}>Примечание (необязательно)</label>
+            <label className={labelCls}>{t('invoice.notes')}</label>
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
               className={inputCls}
               rows={2}
-              placeholder="Дополнительная информация..."
+              placeholder={t('invoice.notesPlaceholder')}
             />
           </div>
 
@@ -655,14 +652,14 @@ export default function InvoiceModal({ order, onClose }: Props) {
               onClick={onClose}
               className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
             >
-              Отмена
+              {t('invoice.cancel')}
             </button>
             <button
               type="submit"
               disabled={createMutation.isPending}
               className="px-6 py-2 text-sm bg-green-700 hover:bg-green-800 text-white rounded-lg transition disabled:opacity-50"
             >
-              {createMutation.isPending ? 'Создание...' : 'Создать инвойс'}
+              {createMutation.isPending ? t('invoice.creating') : t('invoice.createBtn')}
             </button>
           </div>
         </form>

@@ -3,6 +3,8 @@ backend/.env
 backend/tmp/
 backend/alib-crm
 backend/alib-crm.exe
+backend/crm-server.exe
+backend/cmd/server/dist/
 
 # Frontend (React)
 frontend/node_modules/

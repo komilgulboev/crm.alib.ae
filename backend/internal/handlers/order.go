@@ -108,6 +108,12 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		h.db.Create(awb)
 	}
 
+	h.db.Create(&models.OrderLog{
+		OrderID: order.ID,
+		UserID:  order.CreatedByID,
+		Action:  "created",
+	})
+
 	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").First(&order, order.ID)
 	c.JSON(http.StatusCreated, order)
 }
@@ -153,8 +159,132 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Логируем изменения
+	claims, _ := c.Get(middleware.UserKey)
+	userID := claims.(*auth.Claims).UserID
+	h.logChanges(existing.ID, userID, &existing, &req)
+
 	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").First(&req, existing.ID)
 	c.JSON(http.StatusOK, req)
+}
+
+func (h *OrderHandler) GetLogs(c *gin.Context) {
+	var logs []models.OrderLog
+	if err := h.db.Preload("User").
+		Where("order_id = ?", c.Param("id")).
+		Order("created_at DESC").
+		Find(&logs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, logs)
+}
+
+// ── Вспомогательные функции логирования ──────────────────────────────────────
+
+func (h *OrderHandler) logChanges(orderID, userID uint, old, new *models.Order) {
+	ff := func(f float64) string {
+		if f == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.2f", f)
+	}
+	fi := func(i int) string { return fmt.Sprintf("%d", i) }
+	fb := func(b bool) string {
+		if b {
+			return "Да"
+		}
+		return "Нет"
+	}
+	fp := func(p *uint) uint {
+		if p == nil {
+			return 0
+		}
+		return *p
+	}
+
+	type fd struct{ name, o, n string }
+	fields := []fd{
+		{"Статус", string(old.Status), string(new.Status)},
+		{"Job Status", old.JobStatus, new.JobStatus},
+		{"Приоритет", old.Priority, new.Priority},
+		{"Тип работы", old.JobType, new.JobType},
+		{"Тип рейса", old.FlightType, new.FlightType},
+		{"OUR REF", old.OurRef, new.OurRef},
+		{"Поставщик", old.Supplier, new.Supplier},
+		{"Откуда", old.OriginCity, new.OriginCity},
+		{"Куда", old.DestCity, new.DestCity},
+		{"NTR", old.NTR, new.NTR},
+		{"Мест", fi(old.Pieces), fi(new.Pieces)},
+		{"Вес кг", ff(old.WeightKG), ff(new.WeightKG)},
+		{"CWT", ff(old.ChargeableWeight), ff(new.ChargeableWeight)},
+		{"Размеры", old.Dimensions, new.Dimensions},
+		{"H.OVER", fb(old.HandedOver), fb(new.HandedOver)},
+		{"BOE#", old.BOENumber, new.BOENumber},
+		{"Получатель", old.ReceiverName, new.ReceiverName},
+		{"Тел.", old.ReceiverPhone, new.ReceiverPhone},
+		{"Final AWB", old.FinalAWB, new.FinalAWB},
+		{"XBD AWB", old.XBDAWB, new.XBDAWB},
+		{"SVO AWB", old.SVOAWB, new.SVOAWB},
+		{"Сумма", ff(old.TotalAmount), ff(new.TotalAmount)},
+		{"Доп. сумма", ff(old.AddAmount), ff(new.AddAmount)},
+		{"Валюта", string(old.Currency), string(new.Currency)},
+		{"Статус инвойса", old.InvoiceStatus, new.InvoiceStatus},
+		{"Оплата", old.PaymentTiming, new.PaymentTiming},
+	}
+
+	// FK-поля — резолвим имена
+	if old.ClientID != new.ClientID {
+		fields = append(fields, fd{"Клиент",
+			h.resolveClientName(old.ClientID),
+			h.resolveClientName(new.ClientID),
+		})
+	}
+	if fp(old.AssignedToID) != fp(new.AssignedToID) {
+		fields = append(fields, fd{"Ответственный",
+			h.resolveUserName(old.AssignedToID),
+			h.resolveUserName(new.AssignedToID),
+		})
+	}
+
+	var logs []models.OrderLog
+	for _, f := range fields {
+		if f.o != f.n {
+			logs = append(logs, models.OrderLog{
+				OrderID:  orderID,
+				UserID:   userID,
+				Action:   "updated",
+				Field:    f.name,
+				OldValue: f.o,
+				NewValue: f.n,
+			})
+		}
+	}
+	if len(logs) > 0 {
+		h.db.Create(&logs)
+	}
+}
+
+func (h *OrderHandler) resolveClientName(id uint) string {
+	if id == 0 {
+		return "—"
+	}
+	var c models.Client
+	if h.db.Select("name").First(&c, id).Error != nil {
+		return fmt.Sprintf("#%d", id)
+	}
+	return c.Name
+}
+
+func (h *OrderHandler) resolveUserName(id *uint) string {
+	if id == nil || *id == 0 {
+		return "—"
+	}
+	var u models.User
+	if h.db.Select("name").First(&u, *id).Error != nil {
+		return fmt.Sprintf("#%d", *id)
+	}
+	return u.Name
 }
 
 type updateStatusRequest struct {
@@ -178,12 +308,21 @@ func (h *OrderHandler) UpdateStatus(c *gin.Context) {
 	claims, _ := c.Get(middleware.UserKey)
 	userID := claims.(*auth.Claims).UserID
 
+	oldStatus := order.Status
 	h.db.Model(&order).Update("status", req.Status)
 	h.db.Create(&models.StatusHistory{
 		OrderID:   order.ID,
 		Status:    req.Status,
 		Note:      req.Note,
 		ChangedBy: userID,
+	})
+	h.db.Create(&models.OrderLog{
+		OrderID:  order.ID,
+		UserID:   userID,
+		Action:   "updated",
+		Field:    "Статус",
+		OldValue: string(oldStatus),
+		NewValue: string(req.Status),
 	})
 
 	c.JSON(http.StatusOK, gin.H{"status": req.Status})
