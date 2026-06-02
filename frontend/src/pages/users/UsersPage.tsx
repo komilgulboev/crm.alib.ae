@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, UserCheck, UserX } from 'lucide-react'
+import { Plus, UserCheck, UserX, Pencil } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { usersApi } from '../../api/users'
 import { useAuthStore } from '../../store/auth'
 import CreateUserModal from './CreateUserModal'
+import EditUserModal from './EditUserModal'
 import type { User, Role } from '../../types'
 import { formatDate } from '../../lib/utils'
 
@@ -22,6 +23,7 @@ export default function UsersPage() {
   const queryClient = useQueryClient()
   const currentUser = useAuthStore(s => s.user)
   const [createOpen, setCreateOpen] = useState(false)
+  const [editUser, setEditUser] = useState<User | null>(null)
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['users'],
@@ -39,6 +41,7 @@ export default function UsersPage() {
   return (
     <div>
       <CreateUserModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <EditUserModal user={editUser} onClose={() => setEditUser(null)} />
 
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -121,19 +124,28 @@ export default function UsersPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500">{formatDate(user.created_at)}</td>
                     <td className="px-4 py-3">
-                      {!isSelf && (
+                      <div className="flex items-center gap-1">
                         <button
-                          onClick={() => toggleActive.mutate({ id: user.id, active: !user.active })}
-                          title={user.active ? t('common.deactivate') : t('common.activate')}
-                          className={`p-1.5 rounded-lg transition ${
-                            user.active
-                              ? 'text-red-400 hover:bg-red-50 hover:text-red-600'
-                              : 'text-green-500 hover:bg-green-50 hover:text-green-700'
-                          }`}
+                          onClick={() => setEditUser(user)}
+                          title={t('common.edit')}
+                          className="p-1.5 rounded-lg text-blue-400 hover:bg-blue-50 hover:text-blue-600 transition"
                         >
-                          {user.active ? <UserX size={16} /> : <UserCheck size={16} />}
+                          <Pencil size={16} />
                         </button>
-                      )}
+                        {!isSelf && (
+                          <button
+                            onClick={() => toggleActive.mutate({ id: user.id, active: !user.active })}
+                            title={user.active ? t('common.deactivate') : t('common.activate')}
+                            className={`p-1.5 rounded-lg transition ${
+                              user.active
+                                ? 'text-red-400 hover:bg-red-50 hover:text-red-600'
+                                : 'text-green-500 hover:bg-green-50 hover:text-green-700'
+                            }`}
+                          >
+                            {user.active ? <UserX size={16} /> : <UserCheck size={16} />}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )

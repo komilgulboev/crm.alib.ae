@@ -1,19 +1,33 @@
 package main
 
 import (
+	"context"
+
 	"github.com/alib/crm/config"
 	"github.com/alib/crm/internal/handlers"
 	"github.com/alib/crm/internal/middleware"
 	"github.com/alib/crm/internal/models"
 	"github.com/alib/crm/internal/storage"
+	"github.com/alib/crm/internal/telegram"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.MinIOClient) {
+	tgBot := telegram.NewBot(cfg.TelegramBotToken)
+
 	authHandler := handlers.NewAuthHandler(db, cfg.JWTSecret)
 	clientHandler := handlers.NewClientHandler(db)
-	orderHandler := handlers.NewOrderHandler(db)
+	orderHandler := handlers.NewOrderHandler(db, tgBot)
+	telegramHandler := handlers.NewTelegramHandler(db, tgBot)
+
+	if cfg.TelegramWebhookURL != "" {
+		// HTTPS сервер: регистрируем webhook
+		tgBot.SetWebhook(cfg.TelegramWebhookURL + "/api/telegram/webhook")
+	} else {
+		// HTTP сервер (или локальная разработка): запускаем polling
+		tgBot.StartPolling(context.Background(), telegramHandler.HandleUpdate)
+	}
 	paymentHandler := handlers.NewPaymentHandler(db)
 	userHandler := handlers.NewUserHandler(db)
 	bankAccountHandler := handlers.NewBankAccountHandler(db)
@@ -23,6 +37,9 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 	orderNoteHandler := handlers.NewOrderNoteHandler(db)
 
 	api := r.Group("/api/v1")
+
+	// Telegram webhook (публичный, Telegram не умеет слать Bearer-токен)
+	api.POST("/telegram/webhook", telegramHandler.Webhook)
 
 	// Публичные маршруты
 	api.POST("/auth/login", authHandler.Login)

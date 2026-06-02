@@ -9,21 +9,24 @@ import (
 	"github.com/alib/crm/internal/auth"
 	"github.com/alib/crm/internal/middleware"
 	"github.com/alib/crm/internal/models"
+	"github.com/alib/crm/internal/telegram"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 type OrderHandler struct {
-	db *gorm.DB
+	db  *gorm.DB
+	tg  *telegram.Bot
 }
 
-func NewOrderHandler(db *gorm.DB) *OrderHandler {
-	return &OrderHandler{db: db}
+func NewOrderHandler(db *gorm.DB, tg *telegram.Bot) *OrderHandler {
+	return &OrderHandler{db: db, tg: tg}
 }
 
 func (h *OrderHandler) List(c *gin.Context) {
 	var orders []models.Order
-	q := h.db.Preload("Client").Preload("AssignedTo")
+	q := h.db.Preload("Client").Preload("AssignedTo").
+		Where("status != ?", models.StatusDeleted)
 
 	if status := c.Query("status"); status != "" {
 		q = q.Where("status = ?", status)
@@ -64,6 +67,9 @@ func (h *OrderHandler) Get(c *gin.Context) {
 		Preload("AssignedTo").
 		Preload("CreatedBy").
 		Preload("AWB").
+		Preload("Documents", func(db *gorm.DB) *gorm.DB {
+			return db.Order("created_at ASC")
+		}).
 		First(&order, c.Param("id")).Error
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
@@ -94,9 +100,11 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		order.ExchangeRate = 3.67
 	}
 
-	// AWB сохраняется отдельно после создания заказа
+	// AWB и документы сохраняются отдельно после создания заказа
 	awb := order.AWB
 	order.AWB = nil
+	docs := order.Documents
+	order.Documents = nil
 
 	if err := h.db.Create(&order).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -108,13 +116,28 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		h.db.Create(awb)
 	}
 
+	if len(docs) > 0 {
+		for i := range docs {
+			docs[i].ID = 0
+			docs[i].OrderID = order.ID
+		}
+		h.db.Create(&docs)
+	}
+
 	h.db.Create(&models.OrderLog{
 		OrderID: order.ID,
 		UserID:  order.CreatedByID,
 		Action:  "created",
 	})
 
-	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").First(&order, order.ID)
+	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").
+		Preload("Documents", func(db *gorm.DB) *gorm.DB { return db.Order("created_at ASC") }).
+		First(&order, order.ID)
+
+	if order.AssignedToID != nil {
+		h.sendAssignmentNotification(&order)
+	}
+
 	c.JSON(http.StatusCreated, order)
 }
 
@@ -139,9 +162,11 @@ func (h *OrderHandler) Update(c *gin.Context) {
 	req.PaidAmount = existing.PaidAmount
 	req.PaymentStatus = existing.PaymentStatus
 
-	// AWB обновляем отдельно
+	// AWB и документы обновляем отдельно
 	awb := req.AWB
 	req.AWB = nil
+	docs := req.Documents
+	req.Documents = nil
 
 	if err := h.db.Save(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -159,12 +184,30 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		}
 	}
 
+	// Заменяем все документы
+	h.db.Where("order_id = ?", existing.ID).Delete(&models.OrderDocument{})
+	if len(docs) > 0 {
+		for i := range docs {
+			docs[i].ID = 0
+			docs[i].OrderID = existing.ID
+		}
+		h.db.Create(&docs)
+	}
+
 	// Логируем изменения
 	claims, _ := c.Get(middleware.UserKey)
 	userID := claims.(*auth.Claims).UserID
+	assignedChanged := ptrUintVal(existing.AssignedToID) != ptrUintVal(req.AssignedToID)
 	h.logChanges(existing.ID, userID, &existing, &req)
 
-	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").First(&req, existing.ID)
+	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").
+		Preload("Documents", func(db *gorm.DB) *gorm.DB { return db.Order("created_at ASC") }).
+		First(&req, existing.ID)
+
+	if assignedChanged && req.AssignedToID != nil {
+		h.sendAssignmentNotification(&req)
+	}
+
 	c.JSON(http.StatusOK, req)
 }
 
@@ -287,6 +330,60 @@ func (h *OrderHandler) resolveUserName(id *uint) string {
 	return u.Name
 }
 
+// sendAssignmentNotification отправляет Telegram-уведомление назначенному пользователю с кнопками статусов.
+func (h *OrderHandler) sendAssignmentNotification(order *models.Order) {
+	if order.AssignedToID == nil || h.tg == nil || !h.tg.Enabled() {
+		return
+	}
+	var user models.User
+	if h.db.Select("name, telegram_chat_id").First(&user, *order.AssignedToID).Error != nil {
+		return
+	}
+	if user.TelegramChatID == "" {
+		return
+	}
+
+	client := order.Client.Name
+	if client == "" {
+		var c models.Client
+		if h.db.Select("name").First(&c, order.ClientID).Error == nil {
+			client = c.Name
+		}
+	}
+
+	route := fmt.Sprintf("%s → %s", order.OriginCity, order.DestCity)
+	text := fmt.Sprintf(
+		"📦 <b>Вам назначен заказ</b>\n\nREF#: <b>%s</b>\nКлиент: %s\nМаршрут: %s\nТип: %s\nПриоритет: %s\n\nОбновите статус:",
+		order.TrackingNumber, client, route, order.JobType, order.Priority,
+	)
+
+	orderID := fmt.Sprintf("%d", order.ID)
+	keyboard := &telegram.InlineKeyboardMarkup{
+		InlineKeyboard: [][]telegram.InlineKeyboardButton{
+			{
+				{Text: "✅ Task accepted", CallbackData: "tg_accepted:" + orderID},
+			},
+			{
+				{Text: "📦 Goods accepted from customer", CallbackData: "tg_collected:" + orderID},
+			},
+			{
+				{Text: "🏭 Delivered to warehouse", CallbackData: "tg_warehouse:" + orderID},
+			},
+			{
+				{Text: "✈️ Delivered to gateway", CallbackData: "tg_dispatched:" + orderID},
+			},
+		},
+	}
+	h.tg.SendMessageWithButtons(user.TelegramChatID, text, keyboard)
+}
+
+func ptrUintVal(p *uint) uint {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
 type updateStatusRequest struct {
 	Status models.OrderStatus `json:"status" binding:"required"`
 	Note   string             `json:"note"`
@@ -329,10 +426,28 @@ func (h *OrderHandler) UpdateStatus(c *gin.Context) {
 }
 
 func (h *OrderHandler) Delete(c *gin.Context) {
-	if err := h.db.Delete(&models.Order{}, c.Param("id")).Error; err != nil {
+	var order models.Order
+	if err := h.db.First(&order, c.Param("id")).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+
+	claims, _ := c.Get(middleware.UserKey)
+	userID := claims.(*auth.Claims).UserID
+
+	if err := h.db.Model(&order).Update("status", models.StatusDeleted).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	h.db.Create(&models.OrderLog{
+		OrderID:  order.ID,
+		UserID:   userID,
+		Action:   "updated",
+		Field:    "Статус",
+		OldValue: string(order.Status),
+		NewValue: string(models.StatusDeleted),
+	})
+
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }
 

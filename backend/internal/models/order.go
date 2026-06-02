@@ -24,6 +24,7 @@ const (
 	StatusHandedOver        OrderStatus = "handed_over"
 	StatusDeparted          OrderStatus = "departed"
 	StatusCollectionDetails OrderStatus = "collection_details"
+	StatusDeleted           OrderStatus = "deleted"
 )
 
 // JobStatus константы
@@ -92,7 +93,13 @@ type Order struct {
 	FinalAWB  string `json:"final_awb"`  // FINAL AWB
 	XBDAWB    string `json:"xbd_awb"`    // XBD MILE AWB
 	SVOAWB    string `json:"svo_awb"`    // MLE-SVO AWB
-	BOENumber string `json:"boe_number"` // BOE#
+	BOENumber  string `json:"boe_number"`   // BOE#
+	BOEFile1Key string `json:"boe_file_1_key"`
+	BOEFile1URL string `json:"boe_file_1_url"`
+	BOEFile2Key string `json:"boe_file_2_key"`
+	BOEFile2URL string `json:"boe_file_2_url"`
+	BOEFile3Key string `json:"boe_file_3_key"`
+	BOEFile3URL string `json:"boe_file_3_url"`
 
 	// ── Финансы ───────────────────────────────────────────────────────────────
 	TotalAmount   float64  `gorm:"default:0" json:"total_amount"` // AMOUNT
@@ -115,10 +122,11 @@ type Order struct {
 	Instr      string `json:"instr"`                            // INSTR
 
 	// ── Связанные данные ──────────────────────────────────────────────────────
-	Items    []CargoItem     `gorm:"foreignKey:OrderID" json:"items,omitempty"`
-	Payments []Payment       `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
-	History  []StatusHistory `gorm:"foreignKey:OrderID" json:"history,omitempty"`
-	AWB      *AWBData        `gorm:"foreignKey:OrderID" json:"awb,omitempty"`
+	Items     []CargoItem      `gorm:"foreignKey:OrderID" json:"items,omitempty"`
+	Payments  []Payment        `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
+	History   []StatusHistory  `gorm:"foreignKey:OrderID" json:"history,omitempty"`
+	AWB       *AWBData         `gorm:"foreignKey:OrderID" json:"awb,omitempty"`
+	Documents []OrderDocument  `gorm:"foreignKey:OrderID" json:"documents,omitempty"`
 }
 
 type CargoItem struct {

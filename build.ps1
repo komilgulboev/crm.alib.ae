@@ -7,7 +7,17 @@ $root = $PSScriptRoot
 
 Write-Host "=== 1/2  Building frontend ===" -ForegroundColor Cyan
 Set-Location "$root\frontend"
-npm ci --silent
+
+$lockFile    = "$root\frontend\package-lock.json"
+$installedMark = "$root\frontend\node_modules\.package-lock.json"
+if (-not (Test-Path $installedMark) -or
+    (Get-Item $lockFile).LastWriteTime -gt (Get-Item $installedMark).LastWriteTime) {
+    Write-Host "  Installing npm dependencies..." -ForegroundColor DarkCyan
+    npm ci --silent
+} else {
+    Write-Host "  npm deps up-to-date, skipping install" -ForegroundColor DarkGray
+}
+
 npm run build
 Write-Host "Frontend built -> backend\cmd\server\dist\" -ForegroundColor Green
 

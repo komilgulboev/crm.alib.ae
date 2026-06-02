@@ -21,7 +21,9 @@ type Config struct {
 	MinIOBucket    string
 	MinIOUseSSL    bool
 
-	AnthropicKey string
+	AnthropicKey        string
+	TelegramBotToken    string
+	TelegramWebhookURL  string
 }
 
 func Load() *Config {
@@ -42,7 +44,9 @@ func Load() *Config {
 		MinIOBucket:    getEnv("MINIO_BUCKET", "alib-crm"),
 		MinIOUseSSL:    getEnv("MINIO_USE_SSL", "false") == "true",
 
-		AnthropicKey: getEnv("ANTHROPIC_API_KEY", ""),
+		AnthropicKey:       getEnv("ANTHROPIC_API_KEY", ""),
+		TelegramBotToken:   getEnv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramWebhookURL: getEnv("TELEGRAM_WEBHOOK_URL", ""),
 	}
 }
 

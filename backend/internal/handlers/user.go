@@ -23,11 +23,12 @@ func (h *UserHandler) List(c *gin.Context) {
 }
 
 type createUserRequest struct {
-	Name     string      `json:"name" binding:"required"`
-	Email    string      `json:"email" binding:"required,email"`
-	Phone    string      `json:"phone"`
-	Password string      `json:"password" binding:"required,min=6"`
-	Role     models.Role `json:"role" binding:"required"`
+	Name           string      `json:"name" binding:"required"`
+	Email          string      `json:"email" binding:"required,email"`
+	Phone          string      `json:"phone"`
+	Password       string      `json:"password" binding:"required,min=6"`
+	Role           models.Role `json:"role" binding:"required"`
+	TelegramChatID string      `json:"telegram_chat_id"`
 }
 
 func (h *UserHandler) Create(c *gin.Context) {
@@ -38,10 +39,11 @@ func (h *UserHandler) Create(c *gin.Context) {
 	}
 
 	user := models.User{
-		Name:  req.Name,
-		Email: req.Email,
-		Phone: req.Phone,
-		Role:  req.Role,
+		Name:           req.Name,
+		Email:          req.Email,
+		Phone:          req.Phone,
+		Role:           req.Role,
+		TelegramChatID: req.TelegramChatID,
 	}
 	if err := user.HashPassword(req.Password); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
@@ -54,6 +56,16 @@ func (h *UserHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, user)
 }
 
+type updateUserRequest struct {
+	Name           *string      `json:"name"`
+	Email          *string      `json:"email"`
+	Phone          *string      `json:"phone"`
+	Role           *models.Role `json:"role"`
+	Active         *bool        `json:"active"`
+	TelegramChatID *string      `json:"telegram_chat_id"`
+	NewPassword    *string      `json:"new_password"`
+}
+
 func (h *UserHandler) Update(c *gin.Context) {
 	var user models.User
 	if err := h.db.First(&user, c.Param("id")).Error; err != nil {
@@ -61,23 +73,52 @@ func (h *UserHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var body map[string]any
-	c.ShouldBindJSON(&body)
-
-	if name, ok := body["name"].(string); ok {
-		user.Name = name
-	}
-	if phone, ok := body["phone"].(string); ok {
-		user.Phone = phone
-	}
-	if role, ok := body["role"].(string); ok {
-		user.Role = models.Role(role)
-	}
-	if active, ok := body["active"].(bool); ok {
-		user.Active = active
+	var req updateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
-	h.db.Save(&user)
+	if req.Name != nil {
+		user.Name = *req.Name
+	}
+	if req.Email != nil {
+		// Проверка уникальности email (исключая текущего пользователя)
+		var count int64
+		h.db.Model(&models.User{}).Where("email = ? AND id != ?", *req.Email, user.ID).Count(&count)
+		if count > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "email already exists"})
+			return
+		}
+		user.Email = *req.Email
+	}
+	if req.Phone != nil {
+		user.Phone = *req.Phone
+	}
+	if req.Role != nil {
+		user.Role = *req.Role
+	}
+	if req.Active != nil {
+		user.Active = *req.Active
+	}
+	if req.TelegramChatID != nil {
+		user.TelegramChatID = *req.TelegramChatID
+	}
+	if req.NewPassword != nil && *req.NewPassword != "" {
+		if len(*req.NewPassword) < 6 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 6 characters"})
+			return
+		}
+		if err := user.HashPassword(*req.NewPassword); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+			return
+		}
+	}
+
+	if err := h.db.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update user"})
+		return
+	}
 	c.JSON(http.StatusOK, user)
 }
 

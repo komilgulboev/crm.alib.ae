@@ -21,6 +21,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, { ru: string; en: string; 
   handed_over:        { ru: 'Handed Over',       en: 'Handed Over',        color: 'bg-teal-100 text-teal-800' },
   departed:           { ru: 'Departed',          en: 'Departed',           color: 'bg-cyan-100 text-cyan-800' },
   collection_details: { ru: 'Collection Details', en: 'Collection Details', color: 'bg-yellow-100 text-yellow-700' },
+  deleted:            { ru: 'Удалён',             en: 'Deleted',            color: 'bg-gray-100 text-gray-400' },
 }
 
 export const CURRENCY_SYMBOLS: Record<Currency, string> = {

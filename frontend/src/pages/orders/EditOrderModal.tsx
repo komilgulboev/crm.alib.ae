@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, History, Trash2 } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, History, Trash2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import Modal from '../../components/ui/Modal'
 import { ordersApi } from '../../api/orders'
@@ -68,6 +68,9 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const docRefInvoice = useRef<HTMLInputElement>(null)
+  const docRefPackingList = useRef<HTMLInputElement>(null)
+  const docRefBoe = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<Tab>('main')
   const [error, setError] = useState('')
 
@@ -94,6 +97,11 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const [ocrState, setOcrState] = useState<'idle' | 'uploading' | 'ocr' | 'done' | 'error'>('idle')
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrConfidence, setOcrConfidence] = useState(0)
+
+  type LocalDocCat = 'invoice' | 'packing_list' | 'boe'
+  type LocalDoc = { localId: string; category: LocalDocCat; file_key: string; file_url: string; file_name: string; state: 'uploading' | 'done' | 'error' }
+  const [localDocs, setLocalDocs] = useState<LocalDoc[]>([])
+
   const [fin, setFin] = useState({
     total_amount: '', add_amount: '', currency: 'USD' as Currency,
     exchange_rate: '3.67', inv_amount_usd: '', inv_amount_aed: '',
@@ -164,6 +172,14 @@ export default function EditOrderModal({ order, onClose }: Props) {
       invoice_status: order.invoice_status || '',
       cx_notified:    order.cx_notified || false,
     })
+    setLocalDocs((order.documents || []).map(d => ({
+      localId: String(d.id),
+      category: d.category as LocalDocCat,
+      file_key: d.file_key,
+      file_url: d.file_url,
+      file_name: d.file_name,
+      state: 'done' as const,
+    })))
     setNoteText('')
   }, [order])
 
@@ -272,6 +288,29 @@ export default function EditOrderModal({ order, onClose }: Props) {
     mutationFn: (file: File) => filesApi.uploadAWB(file),
   })
 
+  const handleDocFileChange = async (category: LocalDocCat, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    const newDocs: LocalDoc[] = files.map(f => ({
+      localId: `${Date.now()}-${Math.random()}`,
+      category, file_key: '', file_url: '', file_name: f.name, state: 'uploading',
+    }))
+    setLocalDocs(prev => [...prev, ...newDocs])
+    await Promise.all(files.map(async (file, i) => {
+      const { localId } = newDocs[i]
+      try {
+        const res = await uploadMutation.mutateAsync(file)
+        setLocalDocs(prev => prev.map(d => d.localId === localId
+          ? { ...d, file_key: res.data.file_key, file_url: res.data.file_url, state: 'done' } : d))
+      } catch {
+        setLocalDocs(prev => prev.map(d => d.localId === localId ? { ...d, state: 'error' } : d))
+      }
+    }))
+    e.target.value = ''
+  }
+
+  const removeLocalDoc = (localId: string) => setLocalDocs(prev => prev.filter(d => d.localId !== localId))
+
   // ── Загрузка AWB ──────────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -337,7 +376,11 @@ export default function EditOrderModal({ order, onClose }: Props) {
       weight_kg: Number(cargo.weight_kg) || 0,
       chargeable_weight: autoCWT > 0 ? autoCWT : (Number(cargo.chargeable_weight) || 0),
       dimensions: serializeDims(dims), handed_over: cargo.handed_over,
-      boe_number: cargo.boe_number, shipper_2: cargo.shipper_2,
+      boe_number: cargo.boe_number,
+      documents: localDocs.filter(d => d.state === 'done').map(d => ({
+        category: d.category, file_key: d.file_key, file_url: d.file_url, file_name: d.file_name,
+      })),
+      shipper_2: cargo.shipper_2,
       consignee_2: cargo.consignee_2, receiver_name: cargo.receiver_name,
       receiver_phone: cargo.receiver_phone, notes: cargo.notes, instr: cargo.instr,
       final_awb: docs.final_awb, xbd_awb: docs.xbd_awb, svo_awb: docs.svo_awb,
@@ -634,6 +677,64 @@ export default function EditOrderModal({ order, onClose }: Props) {
             <input value={cargo.boe_number}
               onChange={e => setCargo(p => ({...p, boe_number: e.target.value}))}
               className={inp} placeholder="20100313..." />
+
+            {/* Документы по категориям */}
+            {(() => {
+              const cats: { key: LocalDocCat; ref: React.RefObject<HTMLInputElement | null> }[] = [
+                { key: 'invoice',      ref: docRefInvoice },
+                { key: 'packing_list', ref: docRefPackingList },
+                { key: 'boe',          ref: docRefBoe },
+              ]
+              return (
+                <div className="mt-2 space-y-2">
+                  {cats.map(({ key, ref }) => {
+                    const catDocs = localDocs.filter(d => d.category === key)
+                    const catLabel = t(`orders.docCategories.${key}`)
+                    return (
+                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+                          <span className="text-xs font-semibold text-gray-600">{catLabel}</span>
+                          <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png"
+                            multiple onChange={e => handleDocFileChange(key, e)} className="hidden" />
+                          <button type="button" onClick={() => ref.current?.click()}
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                            <Upload size={11} /> {t('common.add')}
+                          </button>
+                        </div>
+                        {catDocs.length === 0 ? (
+                          <button type="button" onClick={() => ref.current?.click()}
+                            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition text-xs text-gray-400">
+                            <Upload size={12} className="shrink-0 text-gray-300" />
+                            {catLabel}...
+                          </button>
+                        ) : (
+                          <div className="divide-y divide-gray-50">
+                            {catDocs.map(doc => (
+                              <div key={doc.localId} className="flex items-center gap-2 px-3 py-2 text-xs">
+                                {doc.state === 'uploading' && <Loader2 size={12} className="text-blue-500 animate-spin shrink-0" />}
+                                {doc.state === 'done'      && <CheckCircle2 size={12} className="text-green-500 shrink-0" />}
+                                {doc.state === 'error'     && <AlertCircle size={12} className="text-red-500 shrink-0" />}
+                                <span className="flex-1 truncate text-gray-700">{doc.file_name}</span>
+                                {doc.state === 'done' && doc.file_url && (
+                                  <a href={doc.file_url} target="_blank" rel="noreferrer"
+                                    className="text-blue-600 hover:underline flex items-center gap-0.5 shrink-0">
+                                    <ExternalLink size={10} /> {t('common.open')}
+                                  </a>
+                                )}
+                                <button type="button" onClick={() => removeLocalDoc(doc.localId)}
+                                  className="text-gray-300 hover:text-red-500 transition shrink-0">
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

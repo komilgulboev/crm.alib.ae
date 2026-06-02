@@ -24,12 +24,13 @@ type User struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-	Name     string `gorm:"not null" json:"name"`
-	Email    string `gorm:"uniqueIndex;not null" json:"email"`
-	Phone    string `json:"phone"`
-	Password string `gorm:"not null" json:"-"`
-	Role     Role   `gorm:"not null;default:'manager'" json:"role"`
-	Active   bool   `gorm:"default:true" json:"active"`
+	Name           string `gorm:"not null" json:"name"`
+	Email          string `gorm:"uniqueIndex;not null" json:"email"`
+	Phone          string `json:"phone"`
+	Password       string `gorm:"not null" json:"-"`
+	Role           Role   `gorm:"not null;default:'manager'" json:"role"`
+	Active         bool   `gorm:"default:true" json:"active"`
+	TelegramChatID string `json:"telegram_chat_id"`
 }
 
 func (u *User) HashPassword(password string) error {

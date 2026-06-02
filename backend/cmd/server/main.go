@@ -44,8 +44,32 @@ func main() {
 		&models.CatalogEntry{},
 		&models.OrderLog{},
 		&models.OrderNote{},
+		&models.OrderDocument{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
+	}
+
+	// Миграция старых BOE файлов (boe_file_1/2/3) в таблицу order_documents
+	var ordersWithOldFiles []models.Order
+	db.Where("boe_file_1_url != '' OR boe_file_2_url != '' OR boe_file_3_url != ''").Find(&ordersWithOldFiles)
+	for _, o := range ordersWithOldFiles {
+		var count int64
+		db.Model(&models.OrderDocument{}).Where("order_id = ?", o.ID).Count(&count)
+		if count == 0 {
+			var docs []models.OrderDocument
+			if o.BOEFile1URL != "" {
+				docs = append(docs, models.OrderDocument{OrderID: o.ID, Category: models.DocCategoryInvoice, FileKey: o.BOEFile1Key, FileURL: o.BOEFile1URL, FileName: "Инвойс"})
+			}
+			if o.BOEFile2URL != "" {
+				docs = append(docs, models.OrderDocument{OrderID: o.ID, Category: models.DocCategoryPackingList, FileKey: o.BOEFile2Key, FileURL: o.BOEFile2URL, FileName: "Packing List"})
+			}
+			if o.BOEFile3URL != "" {
+				docs = append(docs, models.OrderDocument{OrderID: o.ID, Category: models.DocCategoryBOE, FileKey: o.BOEFile3Key, FileURL: o.BOEFile3URL, FileName: "BOE файл"})
+			}
+			if len(docs) > 0 {
+				db.Create(&docs)
+			}
+		}
 	}
 
 	// Seed job_type catalog if empty

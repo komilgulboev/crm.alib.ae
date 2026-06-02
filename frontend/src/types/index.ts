@@ -17,6 +17,7 @@ export type OrderStatus =
   | 'handed_over'
   | 'departed'
   | 'collection_details'
+  | 'deleted'
 
 export type JobType = string
 
@@ -62,6 +63,7 @@ export interface User {
   phone: string
   role: Role
   active: boolean
+  telegram_chat_id: string
   created_at: string
 }
 
@@ -210,6 +212,12 @@ export interface Order {
   xbd_awb: string
   svo_awb: string
   boe_number: string        // BOE#
+  boe_file_1_key?: string
+  boe_file_1_url?: string
+  boe_file_2_key?: string
+  boe_file_2_url?: string
+  boe_file_3_key?: string
+  boe_file_3_url?: string
 
   // Финансы
   total_amount: number      // AMOUNT
@@ -235,8 +243,21 @@ export interface Order {
   payments: Payment[]
   history: StatusHistory[]
   awb?: AWBData
+  documents?: OrderDocument[]
   created_at: string
   updated_at: string
+}
+
+export type DocCategory = 'invoice' | 'packing_list' | 'boe'
+
+export interface OrderDocument {
+  id: number
+  order_id: number
+  category: DocCategory
+  file_key: string
+  file_url: string
+  file_name: string
+  created_at: string
 }
 
 export interface AWBData {

@@ -1,16 +1,18 @@
 import { useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Plus, Search, PackageCheck, Banknote, FileText, Pencil, SlidersHorizontal } from 'lucide-react'
+import { Plus, Search, PackageCheck, Banknote, FileText, Pencil, SlidersHorizontal, Paperclip, Trash2 } from 'lucide-react'
 import { ordersApi } from '../../api/orders'
 import { catalogsApi } from '../../api/catalogs'
 import { formatDate } from '../../lib/utils'
 import type { Order } from '../../types'
+import { useAuthStore } from '../../store/auth'
 import CreateOrderModal from './CreateOrderModal'
 import RecordPaymentModal from './RecordPaymentModal'
 import IssueFromWarehouseModal from './IssueFromWarehouseModal'
 import InvoiceModal from './InvoiceModal'
 import EditOrderModal from './EditOrderModal'
+import OrderFilesModal from './OrderFilesModal'
 
 
 // ── Цвета статусов ─────────────────────────────────────────────────────────
@@ -68,6 +70,9 @@ const loadVisibleCols = (): Set<ColKey> => {
 
 export default function OrdersPage() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const { user } = useAuthStore()
+  const isSuperAdmin = user?.role === 'superadmin'
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [jobTypeFilter, setJobTypeFilter] = useState<string>('')
   const [jobStatusFilter, setJobStatusFilter] = useState<string>('')
@@ -77,18 +82,29 @@ export default function OrdersPage() {
   const [issueOrder, setIssueOrder] = useState<Order | null>(null)
   const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
+  const [filesOrder, setFilesOrder] = useState<Order | null>(null)
+  const [deleteOrder, setDeleteOrder] = useState<Order | null>(null)
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(loadVisibleCols)
   const [colMenuOpen, setColMenuOpen] = useState(false)
   const colMenuRef = useRef<HTMLDivElement>(null)
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => ordersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      setDeleteOrder(null)
+    },
+  })
+
   const ALL_COLUMNS: { key: ColKey; label: string }[] = [
-    { key: 'ref',        label: t('orders.cols.ref') },
+    { key: 'date',       label: t('orders.cols.date') },
     { key: 'our_ref',    label: t('orders.cols.ourRef') },
-    { key: 'assigned',   label: t('orders.cols.assigned') },
+    { key: 'ref',        label: t('orders.cols.ref') },
     { key: 'supplier',   label: t('orders.cols.supplier') },
     { key: 'customer',   label: t('orders.cols.customer') },
     { key: 'job_type',   label: t('orders.cols.jobType') },
     { key: 'org',        label: t('orders.cols.org') },
+    { key: 'final_awb',  label: t('orders.cols.finalAwb') },
     { key: 'des',        label: t('orders.cols.des') },
     { key: 'ntr',        label: t('orders.cols.ntr') },
     { key: 'pieces',     label: t('orders.cols.pieces') },
@@ -96,12 +112,10 @@ export default function OrdersPage() {
     { key: 'cwt',        label: t('orders.cols.cwt') },
     { key: 'status',     label: t('orders.cols.status') },
     { key: 'priority',   label: t('orders.cols.priority') },
-    { key: 'final_awb',  label: t('orders.cols.finalAwb') },
     { key: 'inv_usd',    label: t('orders.cols.invUsd') },
     { key: 'inv_aed',    label: t('orders.cols.invAed') },
     { key: 'inv_status', label: t('orders.cols.invStatus') },
     { key: 'job_status', label: t('orders.cols.jobStatus') },
-    { key: 'date',       label: t('orders.cols.date') },
   ]
 
   const toggleCol = (key: ColKey) => {
@@ -150,6 +164,34 @@ export default function OrdersPage() {
       <IssueFromWarehouseModal order={issueOrder} onClose={() => setIssueOrder(null)} />
       <InvoiceModal order={invoiceOrder} onClose={() => setInvoiceOrder(null)} />
       <EditOrderModal order={editOrder} onClose={() => setEditOrder(null)} />
+      <OrderFilesModal order={filesOrder} onClose={() => setFilesOrder(null)} />
+
+      {deleteOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h2 className="text-base font-semibold text-gray-900 mb-2">{t('orders.deleteConfirmTitle')}</h2>
+            <p className="text-sm text-gray-500 mb-1">
+              <span className="font-mono font-medium text-blue-600">{deleteOrder.tracking_number}</span>
+            </p>
+            <p className="text-sm text-gray-500 mb-5">{t('orders.deleteConfirmText')}</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeleteOrder(null)}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(deleteOrder.id)}
+                disabled={deleteMutation.isPending}
+                className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg transition disabled:opacity-60"
+              >
+                {deleteMutation.isPending ? '...' : t('common.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -254,26 +296,26 @@ export default function OrdersPage() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-3 py-2.5 font-semibold text-gray-500 w-6">#</th>
-                {col('ref')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ref')}</th>}
+                {col('date')       && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.date')}</th>}
                 {col('our_ref')    && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ourRef')}</th>}
-                {col('assigned')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.assigned')}</th>}
+                {col('ref')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ref')}</th>}
                 {col('supplier')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.supplier')}</th>}
                 {col('customer')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.customer')}</th>}
                 {col('job_type')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.jobType')}</th>}
                 {col('org')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.org')}</th>}
+                {col('final_awb')  && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.finalAwb')}</th>}
                 {col('des')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.des')}</th>}
                 {col('ntr')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ntr')}</th>}
                 {col('pieces')     && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.pieces')}</th>}
                 {col('kg')         && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.kg')}</th>}
                 {col('cwt')        && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.cwt')}</th>}
+                <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.assigned')}</th>
                 {col('status')     && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.status')}</th>}
                 {col('priority')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.priority')}</th>}
-                {col('final_awb')  && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.finalAwb')}</th>}
                 {col('inv_usd')    && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invUsd')}</th>}
                 {col('inv_aed')    && <th className="text-right px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invAed')}</th>}
                 {col('inv_status') && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.invStatus')}</th>}
                 {col('job_status') && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.jobStatus')}</th>}
-                {col('date')       && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.date')}</th>}
                 <th className="px-3 py-2.5 w-24"></th>
               </tr>
             </thead>
@@ -285,16 +327,16 @@ export default function OrdersPage() {
                   }`}
                 >
                   <td className="px-3 py-2 text-gray-400">{idx + 1}</td>
-                  {col('ref') && (
-                    <td className="px-3 py-2">
-                      <span className="font-mono font-medium text-blue-600 text-xs">{order.tracking_number}</span>
-                    </td>
+                  {col('date') && (
+                    <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{formatDate(order.created_at)}</td>
                   )}
                   {col('our_ref') && (
                     <td className="px-3 py-2 text-gray-600 max-w-[120px] truncate">{order.our_ref || '—'}</td>
                   )}
-                  {col('assigned') && (
-                    <td className="px-3 py-2 text-gray-700">{order.assigned_to?.name || '—'}</td>
+                  {col('ref') && (
+                    <td className="px-3 py-2">
+                      <span className="font-mono font-medium text-blue-600 text-xs">{order.tracking_number}</span>
+                    </td>
                   )}
                   {col('supplier') && (
                     <td className="px-3 py-2 text-gray-700 max-w-[100px] truncate">{order.supplier || '—'}</td>
@@ -303,7 +345,7 @@ export default function OrdersPage() {
                     <td className="px-3 py-2 font-medium text-gray-900">{order.client?.name || '—'}</td>
                   )}
                   {col('job_type') && (
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 whitespace-nowrap">
                       {order.job_type ? (
                         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${JOB_TYPE_COLORS[order.job_type] || 'bg-gray-100 text-gray-600'}`}>
                           {order.job_type}
@@ -312,6 +354,9 @@ export default function OrdersPage() {
                     </td>
                   )}
                   {col('org') && <td className="px-3 py-2 font-mono text-gray-700">{order.origin_city || '—'}</td>}
+                  {col('final_awb') && (
+                    <td className="px-3 py-2 font-mono text-gray-600">{order.final_awb || '—'}</td>
+                  )}
                   {col('des') && <td className="px-3 py-2 font-mono text-gray-700">{order.dest_city || '—'}</td>}
                   {col('ntr') && (
                     <td className="px-3 py-2">
@@ -331,6 +376,12 @@ export default function OrdersPage() {
                       {order.chargeable_weight ? order.chargeable_weight.toFixed(1) : '—'}
                     </td>
                   )}
+                  <td className="px-3 py-2">
+                    {order.assigned_to?.name
+                      ? <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">{order.assigned_to.name}</span>
+                      : <span className="text-gray-400">—</span>
+                    }
+                  </td>
                   {col('status') && (
                     <td className="px-3 py-2">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[order.status] || 'bg-gray-100 text-gray-600'}`}>
@@ -346,9 +397,6 @@ export default function OrdersPage() {
                         </span>
                       ) : <span className="text-gray-400 text-xs">—</span>}
                     </td>
-                  )}
-                  {col('final_awb') && (
-                    <td className="px-3 py-2 font-mono text-gray-600">{order.final_awb || '—'}</td>
                   )}
                   {col('inv_usd') && (
                     <td className="px-3 py-2 text-right font-medium text-gray-800">
@@ -376,9 +424,6 @@ export default function OrdersPage() {
                       </span>
                     </td>
                   )}
-                  {col('date') && (
-                    <td className="px-3 py-2 text-gray-500">{formatDate(order.created_at)}</td>
-                  )}
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-0.5">
                       {order.status === 'warehouse' && (
@@ -397,10 +442,20 @@ export default function OrdersPage() {
                         className="p-1.5 rounded text-purple-600 hover:bg-purple-50 transition">
                         <FileText size={14} />
                       </button>
+                      <button onClick={() => setFilesOrder(order)} title="Файлы заказа"
+                        className="p-1.5 rounded text-teal-600 hover:bg-teal-50 transition">
+                        <Paperclip size={14} />
+                      </button>
                       <button onClick={() => setEditOrder(order)} title={t('orders.editOrder')}
                         className="p-1.5 rounded text-gray-500 hover:bg-gray-100 transition">
                         <Pencil size={14} />
                       </button>
+                      {isSuperAdmin && (
+                        <button onClick={() => setDeleteOrder(order)} title={t('orders.deleteOrder')}
+                          className="p-1.5 rounded text-red-400 hover:bg-red-50 hover:text-red-600 transition">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -2,12 +2,18 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Package, CreditCard,
   Settings, LogOut, Truck, Building2, BookOpen, Globe,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/auth'
 import { cn } from '../../lib/utils'
 
-export default function Sidebar() {
+interface Props {
+  collapsed: boolean
+  onToggle: () => void
+}
+
+export default function Sidebar({ collapsed, onToggle }: Props) {
   const { user, clearAuth } = useAuthStore()
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
@@ -36,83 +42,102 @@ export default function Sidebar() {
     localStorage.setItem('lang', next)
   }
 
+  const navLink = (to: string, icon: React.ElementType, label: string, end?: boolean) => {
+    const Icon = icon
+    return (
+      <NavLink
+        key={to}
+        to={to}
+        end={end}
+        title={collapsed ? label : undefined}
+        className={({ isActive }) =>
+          cn(
+            'flex items-center py-2 rounded-lg text-sm transition',
+            collapsed ? 'justify-center px-2' : 'gap-3 px-3',
+            isActive
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+          )
+        }
+      >
+        <Icon size={18} className="shrink-0" />
+        {!collapsed && label}
+      </NavLink>
+    )
+  }
+
   return (
-    <aside className="w-64 bg-gray-900 text-white flex flex-col h-screen fixed left-0 top-0">
-      <div className="p-6 border-b border-gray-700">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg">
+    <aside className={cn(
+      'bg-gray-900 text-white flex flex-col h-screen fixed left-0 top-0 transition-all duration-200 overflow-hidden',
+      collapsed ? 'w-14' : 'w-64'
+    )}>
+
+      {/* Logo + toggle */}
+      <div className={cn(
+        'border-b border-gray-700',
+        collapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-4 flex items-center justify-between'
+      )}>
+        <div className={cn('flex items-center', collapsed ? '' : 'gap-3')}>
+          <div className="bg-blue-600 p-2 rounded-lg shrink-0">
             <Truck size={20} />
           </div>
-          <div>
-            <h1 className="font-bold text-lg leading-tight">Alib CRM</h1>
-            <p className="text-gray-400 text-xs">{t('nav.freight')}</p>
-          </div>
+          {!collapsed && (
+            <div>
+              <h1 className="font-bold text-lg leading-tight">Alib CRM</h1>
+              <p className="text-gray-400 text-xs">{t('nav.freight')}</p>
+            </div>
+          )}
         </div>
+        <button
+          onClick={onToggle}
+          title={collapsed ? t('nav.expand') : t('nav.collapse')}
+          className="text-gray-400 hover:text-white hover:bg-gray-800 p-1.5 rounded-lg transition"
+        >
+          {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+        </button>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition',
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              )
-            }
-          >
-            <Icon size={18} />
-            {label}
-          </NavLink>
-        ))}
+      {/* Nav */}
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        {navItems.map(({ to, icon, label }) => navLink(to, icon, label, to === '/'))}
 
         {user?.role === 'superadmin' && (
           <>
-            <div className="pt-4 pb-2">
-              <p className="text-gray-500 text-xs uppercase tracking-wider px-3">{t('nav.admin')}</p>
-            </div>
-            {adminItems.map(({ to, icon: Icon, label }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition',
-                    isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                  )
-                }
-              >
-                <Icon size={18} />
-                {label}
-              </NavLink>
-            ))}
+            {collapsed
+              ? <div className="my-2 border-t border-gray-700 mx-1" />
+              : <div className="pt-4 pb-2">
+                  <p className="text-gray-500 text-xs uppercase tracking-wider px-3">{t('nav.admin')}</p>
+                </div>
+            }
+            {adminItems.map(({ to, icon, label }) => navLink(to, icon, label))}
           </>
         )}
       </nav>
 
-      <div className="p-4 border-t border-gray-700">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="bg-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-sm font-medium">
+      {/* Footer */}
+      <div className={cn('border-t border-gray-700', collapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-4')}>
+        <div className={cn('flex items-center', collapsed ? 'justify-center' : 'gap-3 mb-3')}>
+          <div
+            className="bg-gray-700 rounded-full w-8 h-8 flex items-center justify-center text-sm font-medium shrink-0"
+            title={collapsed ? user?.name : undefined}
+          >
             {user?.name?.[0]?.toUpperCase()}
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{user?.name}</p>
-            <p className="text-gray-400 text-xs truncate">{user?.role}</p>
-          </div>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.name}</p>
+              <p className="text-gray-400 text-xs truncate">{user?.role}</p>
+            </div>
+          )}
         </div>
-        <div className="flex items-center justify-between">
+        <div className={cn('flex items-center', collapsed ? 'flex-col gap-2' : 'justify-between')}>
           <button
             onClick={handleLogout}
+            title={collapsed ? t('nav.logout') : undefined}
             className="flex items-center gap-2 text-gray-400 hover:text-white text-sm transition"
           >
             <LogOut size={16} />
-            {t('nav.logout')}
+            {!collapsed && t('nav.logout')}
           </button>
           <button
             onClick={toggleLang}
@@ -120,7 +145,7 @@ export default function Sidebar() {
             className="flex items-center gap-1.5 text-gray-400 hover:text-white text-xs transition px-2 py-1 rounded hover:bg-gray-800"
           >
             <Globe size={13} />
-            {i18n.language === 'ru' ? 'EN' : 'RU'}
+            {!collapsed && (i18n.language === 'ru' ? 'EN' : 'RU')}
           </button>
         </div>
       </div>
