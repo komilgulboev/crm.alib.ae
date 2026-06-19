@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   Mail, Send, Settings, Plus, Trash2, Edit2, Check, X,
   AlertCircle, CheckCircle2, Loader2, ChevronDown, ChevronUp,
@@ -13,6 +14,7 @@ import type { Order, TransitEmailConfig } from '../../types'
 // ── Transit email config editor ──────────────────────────────────────────────
 
 function TransitEmailConfigSection() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<TransitEmailConfig | null>(null)
   const [creating, setCreating] = useState(false)
@@ -53,13 +55,13 @@ function TransitEmailConfigSection() {
       <div className="flex items-center justify-between px-5 py-3.5 bg-gray-50 border-b border-gray-200">
         <div className="flex items-center gap-2">
           <Settings size={16} className="text-gray-500" />
-          <span className="text-sm font-semibold text-gray-700">Настройка email по транзитным точкам</span>
+          <span className="text-sm font-semibold text-gray-700">{t('instructions.configTitle')}</span>
         </div>
         <button
           onClick={() => setCreating(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition"
         >
-          <Plus size={13} /> Добавить
+          <Plus size={13} /> {t('instructions.addConfig')}
         </button>
       </div>
 
@@ -69,35 +71,35 @@ function TransitEmailConfigSection() {
         <div className="divide-y divide-gray-100">
           {creating && (
             <div className="p-4 bg-blue-50 space-y-3">
-              <p className="text-xs font-semibold text-blue-700 uppercase">Новая конфигурация</p>
+              <p className="text-xs font-semibold text-blue-700 uppercase">{t('instructions.newConfigTitle')}</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Транзит (код аэропорта)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.transitCodeLabel')}</label>
                   <input value={form.transit_code} onChange={e => setForm(p => ({ ...p, transit_code: e.target.value.toUpperCase() }))}
                     className={inp} placeholder="CAI" maxLength={10} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Описание</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.descriptionLabel')}</label>
                   <input value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
                     className={inp} placeholder="Delta Express — Cairo" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Email адреса (через запятую)</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.emailsLabel')}</label>
                 <textarea value={form.emails} onChange={e => setForm(p => ({ ...p, emails: e.target.value }))}
-                  className={inp} rows={2} placeholder="agent1@example.com, agent2@example.com" />
+                  className={inp} rows={2} placeholder={t('instructions.emailsPlaceholder')} />
               </div>
               <div className="flex gap-2 justify-end">
                 <button onClick={() => setCreating(false)}
                   className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                  Отмена
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={() => createMut.mutate(form)}
                   disabled={!form.transit_code || !form.emails || createMut.isPending}
                   className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5">
                   {createMut.isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                  Сохранить
+                  {t('instructions.save')}
                 </button>
               </div>
             </div>
@@ -105,7 +107,7 @@ function TransitEmailConfigSection() {
 
           {configs.length === 0 && !creating && (
             <div className="p-6 text-center text-gray-400 text-sm">
-              Нет настроек. Добавьте конфигурацию email для каждого транзитного аэропорта.
+              {t('instructions.noConfigs')}
             </div>
           )}
 
@@ -115,20 +117,20 @@ function TransitEmailConfigSection() {
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Транзит</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.transitCodeLabel')}</label>
                       <input value={editing.transit_code}
                         onChange={e => setEditing(p => p ? ({ ...p, transit_code: e.target.value.toUpperCase() }) : p)}
                         className={inp} maxLength={10} />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Описание</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.descriptionLabel')}</label>
                       <input value={editing.description}
                         onChange={e => setEditing(p => p ? ({ ...p, description: e.target.value }) : p)}
                         className={inp} />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Email адреса</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.emailsLabel')}</label>
                     <textarea value={editing.emails}
                       onChange={e => setEditing(p => p ? ({ ...p, emails: e.target.value }) : p)}
                       className={inp} rows={2} />
@@ -138,19 +140,19 @@ function TransitEmailConfigSection() {
                       <input type="checkbox" checked={editing.active}
                         onChange={e => setEditing(p => p ? ({ ...p, active: e.target.checked }) : p)}
                         className="accent-blue-600 w-4 h-4" />
-                      <span className="text-sm text-gray-700">Активна</span>
+                      <span className="text-sm text-gray-700">{t('instructions.activeLabel')}</span>
                     </label>
                     <div className="flex gap-2">
                       <button onClick={() => setEditing(null)}
                         className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Отмена
+                        {t('common.cancel')}
                       </button>
                       <button
                         onClick={() => updateMut.mutate({ id: editing.id, data: editing })}
                         disabled={updateMut.isPending}
                         className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 flex items-center gap-1.5">
                         {updateMut.isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                        Сохранить
+                        {t('instructions.save')}
                       </button>
                     </div>
                   </div>
@@ -164,7 +166,7 @@ function TransitEmailConfigSection() {
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-sm font-semibold text-gray-800">{cfg.transit_code}</span>
                       {cfg.description && <span className="text-xs text-gray-500">— {cfg.description}</span>}
-                      {!cfg.active && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">неактивна</span>}
+                      {!cfg.active && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{t('instructions.inactiveTag')}</span>}
                     </div>
                     <p className="text-xs text-gray-500 break-all">{cfg.emails}</p>
                   </div>
@@ -196,6 +198,7 @@ interface SendModalProps {
 }
 
 function SendInstructionModal({ orderId, onClose }: SendModalProps) {
+  const { t } = useTranslation()
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
   const [to, setTo] = useState<string>('')
   const [subject, setSubject] = useState('')
@@ -203,23 +206,26 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
   const [sent, setSent] = useState(false)
   const [sendError, setSendError] = useState('')
 
-  const { data: instr, isLoading } = useQuery({
+  const { data: instr, isLoading, isError } = useQuery({
     queryKey: ['order-instruction', orderId],
     queryFn: () => instructionsApi.getOrderInstruction(orderId).then(r => r.data),
   })
 
   useEffect(() => {
     if (!instr) return
-    setTo(instr.to.join(', '))
-    setSubject(instr.subject)
-    setBody(instr.body)
+    setTo((instr.to || []).join(', '))
+    setSubject(instr.subject || '')
+    setBody(instr.body || '')
     // Select all docs by default
-    setSelectedDocs(new Set(instr.documents.map(d => d.url)))
+    setSelectedDocs(new Set((instr.documents || []).map(d => d.url)))
   }, [instr])
+
+  const documents = instr?.documents || []
+  const recipients = instr?.to || []
 
   const sendMut = useMutation({
     mutationFn: () => {
-      const docs = (instr?.documents || []).filter(d => selectedDocs.has(d.url))
+      const docs = documents.filter(d => selectedDocs.has(d.url))
       return instructionsApi.sendEmail({
         subject,
         body,
@@ -230,7 +236,7 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
     },
     onSuccess: () => setSent(true),
     onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : 'Ошибка отправки'
+      const msg = e instanceof Error ? e.message : t('instructions.sendError')
       setSendError(msg)
     },
   })
@@ -249,7 +255,20 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div className="bg-white rounded-2xl p-8 flex flex-col items-center gap-3">
         <Loader2 size={28} className="animate-spin text-blue-600" />
-        <p className="text-sm text-gray-600">Загрузка данных...</p>
+        <p className="text-sm text-gray-600">{t('instructions.loadingData')}</p>
+      </div>
+    </div>
+  )
+
+  if (isError || !instr) return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8 flex flex-col items-center gap-3 max-w-sm">
+        <AlertCircle size={28} className="text-red-500" />
+        <p className="text-sm text-gray-600 text-center">{t('common.error')}</p>
+        <button onClick={onClose}
+          className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition">
+          {t('common.close')}
+        </button>
       </div>
     </div>
   )
@@ -260,7 +279,7 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <Mail size={18} className="text-blue-600" />
-            <h2 className="text-base font-bold text-gray-900">Отправить инструкцию</h2>
+            <h2 className="text-base font-bold text-gray-900">{t('instructions.modalTitle')}</h2>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition">
             <X size={20} />
@@ -270,56 +289,55 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
         {sent ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
             <CheckCircle2 size={48} className="text-green-500" />
-            <p className="text-lg font-semibold text-gray-800">Email отправлен!</p>
+            <p className="text-lg font-semibold text-gray-800">{t('instructions.sentTitle')}</p>
             <button onClick={onClose}
               className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-              Закрыть
+              {t('common.close')}
             </button>
           </div>
         ) : (
           <>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              {!instr?.smtp_ready && (
+              {!instr.smtp_ready && (
                 <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <AlertCircle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-amber-700">
-                    SMTP не настроен. Добавьте переменные <code className="bg-amber-100 px-1 rounded">SMTP_HOST</code>, <code className="bg-amber-100 px-1 rounded">SMTP_USER</code>, <code className="bg-amber-100 px-1 rounded">SMTP_PASSWORD</code> в .env файл.
-                    Email можно скопировать вручную.
+                    {t('instructions.smtpNotConfigured')}
                   </p>
                 </div>
               )}
 
-              {instr?.to.length === 0 && (
+              {recipients.length === 0 && (
                 <div className="flex items-start gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <AlertCircle size={16} className="text-yellow-500 mt-0.5 flex-shrink-0" />
                   <p className="text-xs text-yellow-700">
-                    Нет настроенных получателей для транзита <strong>{instr.order.transit_city || '(не указан)'}</strong>.
-                    Настройте email в разделе выше или введите вручную.
+                    {t('instructions.noRecipients')} <strong>{instr.order?.transit_city || t('instructions.notSpecified')}</strong>.{' '}
+                    {t('instructions.noRecipientsHint')}
                   </p>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Кому (через запятую)</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.toLabel')}</label>
                 <input value={to} onChange={e => setTo(e.target.value)} className={inp} placeholder="email1@example.com, email2@example.com" />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Тема</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.subjectLabel')}</label>
                 <input value={subject} onChange={e => setSubject(e.target.value)} className={inp} />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Текст письма</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">{t('instructions.bodyLabel')}</label>
                 <textarea value={body} onChange={e => setBody(e.target.value)}
                   className={inp} rows={10} style={{ fontFamily: 'monospace', fontSize: '12px' }} />
               </div>
 
-              {(instr?.documents || []).length > 0 && (
+              {documents.length > 0 && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-2">Вложения</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-2">{t('instructions.attachmentsLabel')}</label>
                   <div className="space-y-1.5">
-                    {instr!.documents.map(doc => (
+                    {documents.map(doc => (
                       <label key={doc.url} className="flex items-center gap-3 p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition">
                         <input type="checkbox" checked={selectedDocs.has(doc.url)}
                           onChange={() => toggleDoc(doc.url)}
@@ -348,14 +366,14 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
             <div className="flex justify-between items-center px-6 py-4 border-t border-gray-100 gap-3">
               <button onClick={onClose}
                 className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                Отмена
+                {t('common.cancel')}
               </button>
               <button
                 onClick={() => sendMut.mutate()}
                 disabled={sendMut.isPending || !to.trim()}
                 className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition disabled:opacity-50">
                 {sendMut.isPending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                Отправить
+                {t('instructions.sendBtn')}
               </button>
             </div>
           </>
@@ -368,6 +386,7 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function InstructionsPage() {
+  const { t } = useTranslation()
   const { user } = useAuthStore()
   const [showConfig, setShowConfig] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null)
@@ -393,15 +412,15 @@ export default function InstructionsPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Instructions</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Отправка инструкций партнёрам по транзитным точкам</p>
+          <h1 className="text-xl font-bold text-gray-900">{t('instructions.title')}</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{t('instructions.subtitle')}</p>
         </div>
         {user?.role === 'superadmin' && (
           <button
             onClick={() => setShowConfig(p => !p)}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
             <Settings size={15} />
-            Настройки email
+            {t('instructions.configToggle')}
             {showConfig ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
         )}
@@ -416,10 +435,10 @@ export default function InstructionsPage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Поиск по REF#, транзиту, клиенту, AWB..."
+            placeholder={t('instructions.searchPlaceholder')}
             className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <span className="text-xs text-gray-400">{filtered.length} заказов</span>
+          <span className="text-xs text-gray-400">{filtered.length} {t('instructions.ordersCount')}</span>
         </div>
 
         {isLoading ? (
@@ -427,7 +446,7 @@ export default function InstructionsPage() {
             <Loader2 size={24} className="animate-spin mx-auto text-gray-300" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">Нет заказов</div>
+          <div className="p-8 text-center text-gray-400 text-sm">{t('instructions.noOrders')}</div>
         ) : (
           <div className="divide-y divide-gray-100">
             {filtered.map((order: Order) => (
@@ -445,6 +464,7 @@ export default function InstructionsPage() {
 }
 
 function OrderRow({ order, onSend }: { order: Order; onSend: () => void }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 transition">
       <div className="flex-shrink-0 text-center w-24">
@@ -477,7 +497,7 @@ function OrderRow({ order, onSend }: { order: Order; onSend: () => void }) {
             Transit: {order.transit_city}
           </span>
         ) : (
-          <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">Нет транзита</span>
+          <span className="text-xs bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full">{t('instructions.noTransit')}</span>
         )}
       </div>
 
@@ -485,7 +505,7 @@ function OrderRow({ order, onSend }: { order: Order; onSend: () => void }) {
         <button
           onClick={onSend}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition">
-          <Eye size={12} /> Инструкция
+          <Eye size={12} /> {t('instructions.viewInstructionBtn')}
         </button>
       </div>
     </div>

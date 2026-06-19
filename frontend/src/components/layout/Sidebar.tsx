@@ -23,7 +23,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
     { to: '/orders',        icon: Package,         label: t('nav.orders') },
     { to: '/clients',       icon: Users,           label: t('nav.clients') },
     { to: '/payments',      icon: CreditCard,      label: t('nav.payments') },
-    { to: '/instructions',  icon: FileText,        label: 'Instructions' },
+    { to: '/instructions',  icon: FileText,        label: t('nav.instructions') },
   ]
 
   const adminItems = [

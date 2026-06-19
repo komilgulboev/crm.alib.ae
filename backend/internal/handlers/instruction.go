@@ -171,7 +171,7 @@ func (h *InstructionHandler) GetOrderInstruction(c *gin.Context) {
 		h.db.Where("transit_code = ? AND active = true", strings.ToUpper(order.TransitCity)).Find(&emailConfigs)
 	}
 
-	var recipients []string
+	recipients := []string{}
 	for _, ec := range emailConfigs {
 		for _, e := range strings.Split(ec.Emails, ",") {
 			e = strings.TrimSpace(e)
@@ -205,7 +205,7 @@ func (h *InstructionHandler) GetOrderInstruction(c *gin.Context) {
 		Name     string `json:"name"`
 		Category string `json:"category"`
 	}
-	var docs []DocInfo
+	docs := []DocInfo{}
 	for _, d := range order.Documents {
 		docs = append(docs, DocInfo{URL: d.FileURL, Name: d.FileName, Category: d.Category})
 	}
