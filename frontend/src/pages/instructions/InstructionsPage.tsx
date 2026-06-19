@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Mail, Send, Settings, Plus, Trash2, Edit2, Check, X,
@@ -206,14 +206,16 @@ function SendInstructionModal({ orderId, onClose }: SendModalProps) {
   const { data: instr, isLoading } = useQuery({
     queryKey: ['order-instruction', orderId],
     queryFn: () => instructionsApi.getOrderInstruction(orderId).then(r => r.data),
-    onSuccess: (data) => {
-      setTo(data.to.join(', '))
-      setSubject(data.subject)
-      setBody(data.body)
-      // Select all docs by default
-      setSelectedDocs(new Set(data.documents.map(d => d.url)))
-    },
-  } as Parameters<typeof useQuery>[0])
+  })
+
+  useEffect(() => {
+    if (!instr) return
+    setTo(instr.to.join(', '))
+    setSubject(instr.subject)
+    setBody(instr.body)
+    // Select all docs by default
+    setSelectedDocs(new Set(instr.documents.map(d => d.url)))
+  }, [instr])
 
   const sendMut = useMutation({
     mutationFn: () => {

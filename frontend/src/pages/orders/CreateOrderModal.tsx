@@ -9,7 +9,7 @@ import { usersApi } from '../../api/users'
 import { filesApi } from '../../api/files'
 import { catalogsApi } from '../../api/catalogs'
 import { extractAWBFromFile, isPDFFile } from '../../lib/awbOcr'
-import type { AWBData, Currency, NTR, User } from '../../types'
+import type { AWBData, Currency, NTR } from '../../types'
 
 interface Props {
   open: boolean
@@ -64,7 +64,7 @@ const emptyAWB = (): AWBData => ({
   execution_date: '', execution_time: '', execution_place: '', signer_name: '',
 })
 
-type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'documents' | 'assigned'
+type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'documents'
 
 type LocalDoc = {
   localId: string
@@ -109,6 +109,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     weight_kg: '',
     chargeable_weight: '',
     handed_over: false,
+    handed_over_by_id: '',
     boe_number: '',
     shipper_2: '',
     consignee_2: '',
@@ -173,6 +174,11 @@ export default function CreateOrderModal({ open, onClose }: Props) {
   const { data: docCatalog = [] } = useQuery({
     queryKey: ['catalogs', 'doc_category'],
     queryFn: () => catalogsApi.list('doc_category', true).then(r => r.data),
+  })
+
+  const { data: shipperCatalog = [] } = useQuery({
+    queryKey: ['catalogs', 'shipper'],
+    queryFn: () => catalogsApi.list('shipper', true).then(r => r.data),
   })
 
   const docCategories = docCatalog.length > 0
@@ -390,7 +396,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     setMain({ our_ref: '', client_id: '', flight_type: '', status: 'new', job_status: 'OPEN',
       assigned_to_id: '', payment_timing: 'on_dispatch', priority: 'ROUTINE' })
     setCargo({ origin_city: '', transit_city: '', dest_city: '', ntr: 'GEN', pieces: '1',
-      weight_kg: '', chargeable_weight: '', handed_over: false,
+      weight_kg: '', chargeable_weight: '', handed_over: false, handed_over_by_id: '',
       boe_number: '', shipper_2: '', consignee_2: '', receiver_name: '',
       receiver_phone: '', notes: '', instr: '' })
     setDims([{ l: '', w: '', h: '' }])
@@ -434,6 +440,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
       chargeable_weight: autoCWT > 0 ? autoCWT : (Number(cargo.chargeable_weight) || 0),
       dimensions:     serializeDims(dims),
       handed_over:    cargo.handed_over,
+      handed_over_by_id: cargo.handed_over_by_id ? Number(cargo.handed_over_by_id) : null,
       boe_number:     cargo.boe_number,
       documents: localDocs.filter(d => d.state === 'done').map(d => ({
         category: d.category, file_key: d.file_key, file_url: d.file_url, file_name: d.file_name,
@@ -472,7 +479,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     { key: 'awb',       label: t('orders.create.tabAwb') },
     { key: 'finance',   label: t('orders.create.tabFinance') },
     { key: 'documents', label: 'Documents' },
-    { key: 'assigned',  label: t('orders.create.tabAssigned') },
   ]
 
   return (
@@ -498,9 +504,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
                 {localDocs.filter(d => d.state === 'done').length}
               </span>
-            )}
-            {tb.key === 'assigned' && main.assigned_to_id && (
-              <span className="ml-1.5 w-2 h-2 rounded-full bg-blue-500 inline-block" />
             )}
           </button>
         ))}
@@ -584,15 +587,27 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          <div>
-            <label className={lbl}>STATUS</label>
-            <select value={main.status}
-              onChange={e => setMain(p => ({...p, status: e.target.value}))}
-              className={inp}>
-              {statuses.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={lbl}>ASSIGNED</label>
+              <select value={main.assigned_to_id}
+                onChange={e => setMain(p => ({...p, assigned_to_id: e.target.value}))} className={inp}>
+                <option value="">{t('orders.create.notAssigned')}</option>
+                {(users as {id: number; name: string}[]).map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={lbl}>STATUS</label>
+              <select value={main.status}
+                onChange={e => setMain(p => ({...p, status: e.target.value}))}
+                className={inp}>
+                {statuses.map(s => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -769,13 +784,23 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               </div>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-3 grid grid-cols-2 gap-3 items-end">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cargo.handed_over}
                   onChange={e => setCargo(p => ({...p, handed_over: e.target.checked}))}
                   className="accent-blue-600 w-4 h-4" />
                 <span className="text-sm font-medium text-gray-700">{t('orders.create.handedOver')}</span>
               </label>
+              <div>
+                <label className={lbl}>Handed Over By</label>
+                <select value={cargo.handed_over_by_id}
+                  onChange={e => setCargo(p => ({...p, handed_over_by_id: e.target.value}))} className={inp}>
+                  <option value="">— не выбрано —</option>
+                  {(users as {id: number; name: string}[]).map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -804,9 +829,18 @@ export default function CreateOrderModal({ open, onClose }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.shipper2')}</label>
+              {shipperCatalog.length > 0 && (
+                <select
+                  value={shipperCatalog.find(s => s.value === cargo.shipper_2) ? cargo.shipper_2 : ''}
+                  onChange={e => { if (e.target.value) setCargo(p => ({...p, shipper_2: e.target.value})) }}
+                  className={`${inp} mb-1.5`}>
+                  <option value="">— выбрать из списка —</option>
+                  {shipperCatalog.map(s => <option key={s.id} value={s.value}>{s.label}</option>)}
+                </select>
+              )}
               <textarea value={cargo.shipper_2}
                 onChange={e => setCargo(p => ({...p, shipper_2: e.target.value}))}
-                className={inp} rows={3}
+                className={inp} rows={2}
                 placeholder={t('orders.create.companyDetailsPlaceholder')} />
             </div>
             <div>
@@ -1203,51 +1237,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
                 })}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* ═══════════════════════════════════════════════════════════════════
-            TAB 6 — ASSIGNED
-        ══════════════════════════════════════════════════════════════════════ */}
-        <div className={tab === 'assigned' ? 'space-y-3' : 'hidden'}>
-          <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
-            !main.assigned_to_id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
-          }`}>
-            <input type="radio" name="assigned_user" value=""
-              checked={!main.assigned_to_id}
-              onChange={() => setMain(p => ({...p, assigned_to_id: ''}))}
-              className="hidden" />
-            <div className="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center shrink-0">
-              <span className="text-gray-500 text-sm font-bold">—</span>
-            </div>
-            <p className="text-sm font-medium text-gray-600">{t('orders.create.notAssigned')}</p>
-          </label>
-
-          {(users as User[]).filter(u => u.active).map(u => (
-            <label key={u.id} className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
-              main.assigned_to_id === String(u.id)
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:bg-gray-50'
-            }`}>
-              <input type="radio" name="assigned_user" value={u.id}
-                checked={main.assigned_to_id === String(u.id)}
-                onChange={() => setMain(p => ({...p, assigned_to_id: String(u.id)}))}
-                className="hidden" />
-              <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
-                <span className="text-white text-sm font-bold">{u.name.charAt(0).toUpperCase()}</span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900">{u.name}</p>
-                <p className="text-xs text-gray-500 truncate">{u.email}</p>
-              </div>
-              <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-600 shrink-0">
-                {u.role}
-              </span>
-            </label>
-          ))}
-
-          {(users as User[]).filter(u => u.active).length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-6">{t('users.noUsers')}</p>
           )}
         </div>
 

@@ -112,12 +112,7 @@ func (h *InstructionHandler) SendEmail(c *gin.Context) {
 	}
 
 	// Download attachments
-	type attachment struct {
-		name string
-		data []byte
-		mime string
-	}
-	var attachments []attachment
+	var attachments []emailAttachment
 	for i, url := range req.AttachmentURLs {
 		if url == "" {
 			continue
@@ -137,7 +132,7 @@ func (h *InstructionHandler) SendEmail(c *gin.Context) {
 		if mime == "" {
 			mime = mimeByName(name)
 		}
-		attachments = append(attachments, attachment{name: name, data: data, mime: mime})
+		attachments = append(attachments, emailAttachment{name: name, data: data, mime: mime})
 	}
 
 	msg := buildEmail(h.cfg.SMTPFrom, req.To, req.Subject, req.Body, attachments)

@@ -9,7 +9,7 @@ import { usersApi } from '../../api/users'
 import { filesApi } from '../../api/files'
 import { catalogsApi } from '../../api/catalogs'
 import { extractAWBFromFile, isPDFFile } from '../../lib/awbOcr'
-import type { AWBData, Currency, NTR, Order, OrderLog, OrderNote, User } from '../../types'
+import type { AWBData, Currency, NTR, Order, OrderLog, OrderNote } from '../../types'
 
 interface Props {
   order: Order | null
