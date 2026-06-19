@@ -60,6 +60,7 @@ type Order struct {
 	FlightType    string `json:"flight_type"`     // charter | regular
 	OriginCountry string `json:"origin_country"` // страна (необязательно)
 	OriginCity    string `json:"origin_city"`    // ORG (аэропорт: DXB, MAN, TOO...)
+	TransitCity   string `json:"transit_city"`   // TRANSIT (промежуточный аэропорт)
 	DestCountry   string `json:"dest_country"`
 	DestCity      string `json:"dest_city"` // DES (аэропорт: CAI, DYU, SVO...)
 
@@ -68,10 +69,12 @@ type Order struct {
 	ClientID  uint   `gorm:"not null" json:"client_id"`
 	Client    Client `gorm:"foreignKey:ClientID" json:"client,omitempty"`
 
-	AssignedToID *uint `json:"assigned_to_id"`
-	AssignedTo   *User `gorm:"foreignKey:AssignedToID" json:"assigned_to,omitempty"`
-	CreatedByID  uint  `json:"created_by_id"`
-	CreatedBy    User  `gorm:"foreignKey:CreatedByID" json:"created_by,omitempty"`
+	AssignedToID   *uint `json:"assigned_to_id"`
+	AssignedTo     *User `gorm:"foreignKey:AssignedToID" json:"assigned_to,omitempty"`
+	HandedOverByID *uint `json:"handed_over_by_id"`
+	HandedOverBy   *User `gorm:"foreignKey:HandedOverByID" json:"handed_over_by,omitempty"`
+	CreatedByID    uint  `json:"created_by_id"`
+	CreatedBy      User  `gorm:"foreignKey:CreatedByID" json:"created_by,omitempty"`
 
 	// ── Получатель ────────────────────────────────────────────────────────────
 	ReceiverName  string `json:"receiver_name"`
@@ -90,16 +93,18 @@ type Order struct {
 	Consignee2 string `json:"consignee_2"` // полные данные получателя
 
 	// ── AWB и документы ──────────────────────────────────────────────────────
-	FinalAWB  string `json:"final_awb"`  // FINAL AWB
-	XBDAWB    string `json:"xbd_awb"`    // XBD MILE AWB
-	SVOAWB    string `json:"svo_awb"`    // MLE-SVO AWB
+	FinalAWB    string `json:"final_awb"`       // 1-LEG AWB
+	XBDAWB      string `json:"xbd_awb"`         // 2-LEG AWB number
+	SVOAWB      string `json:"svo_awb"`         // FINAL AWB
+	AWB2FileKey string `gorm:"column:awb2_file_key" json:"awb2_file_key"` // 2-LEG AWB document
+	AWB2FileURL string `gorm:"column:awb2_file_url" json:"awb2_file_url"`
 	BOENumber  string `json:"boe_number"`   // BOE#
-	BOEFile1Key string `json:"boe_file_1_key"`
-	BOEFile1URL string `json:"boe_file_1_url"`
-	BOEFile2Key string `json:"boe_file_2_key"`
-	BOEFile2URL string `json:"boe_file_2_url"`
-	BOEFile3Key string `json:"boe_file_3_key"`
-	BOEFile3URL string `json:"boe_file_3_url"`
+	BOEFile1Key string `gorm:"column:boe_file_1_key" json:"boe_file_1_key"`
+	BOEFile1URL string `gorm:"column:boe_file_1_url" json:"boe_file_1_url"`
+	BOEFile2Key string `gorm:"column:boe_file_2_key" json:"boe_file_2_key"`
+	BOEFile2URL string `gorm:"column:boe_file_2_url" json:"boe_file_2_url"`
+	BOEFile3Key string `gorm:"column:boe_file_3_key" json:"boe_file_3_key"`
+	BOEFile3URL string `gorm:"column:boe_file_3_url" json:"boe_file_3_url"`
 
 	// ── Финансы ───────────────────────────────────────────────────────────────
 	TotalAmount   float64  `gorm:"default:0" json:"total_amount"` // AMOUNT

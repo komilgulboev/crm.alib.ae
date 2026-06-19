@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, History, Trash2, X } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, History, Trash2, X, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import Modal from '../../components/ui/Modal'
 import { ordersApi } from '../../api/orders'
@@ -9,13 +9,12 @@ import { usersApi } from '../../api/users'
 import { filesApi } from '../../api/files'
 import { catalogsApi } from '../../api/catalogs'
 import { extractAWBFromFile, isPDFFile } from '../../lib/awbOcr'
-import type { AWBData, Currency, JobType, NTR, Order, OrderLog, OrderNote } from '../../types'
+import type { AWBData, Currency, NTR, Order, OrderLog, OrderNote, User } from '../../types'
 
 interface Props {
   order: Order | null
   onClose: () => void
 }
-
 
 const PRIORITY_OPTIONS = [
   { value: 'ROUTINE',  label: 'ROUTINE',  color: 'border-gray-300 bg-white text-gray-600' },
@@ -43,7 +42,30 @@ const serializeDims = (dims: DimRow[]) =>
 const INVOICE_STATUSES = ['', 'Inv Sent', 'Pending', 'Paid', 'Cancelled']
 const CURRENCIES: Currency[] = ['USD', 'AED', 'TJS', 'RUB']
 
-type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'history'
+const DEFAULT_DOC_CATEGORIES = [
+  { value: 'invoice',      label: 'Invoice' },
+  { value: 'packing_list', label: 'Packing List' },
+  { value: 'boe',          label: 'BOE' },
+]
+
+const DEFAULT_JOB_TYPES = [
+  { value: 'T-IN',  label: 'T-IN' },
+  { value: 'L-EXP', label: 'L-EXP' },
+  { value: 'T-OUT', label: 'T-OUT' },
+  { value: 'T-EXP', label: 'T-EXP' },
+  { value: 'GEN',   label: 'GEN' },
+]
+
+type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'documents' | 'history'
+
+type LocalDoc = {
+  localId: string
+  category: string
+  file_key: string
+  file_url: string
+  file_name: string
+  state: 'uploading' | 'done' | 'error'
+}
 
 const emptyAWB = (): AWBData => ({
   awb_number: '', shipper_name: '', shipper_address: '', shipper_account_no: '',
@@ -68,21 +90,22 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const docRefInvoice = useRef<HTMLInputElement>(null)
-  const docRefPackingList = useRef<HTMLInputElement>(null)
-  const docRefBoe = useRef<HTMLInputElement>(null)
+  const docFileRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<Tab>('main')
   const [error, setError] = useState('')
 
   // ── State ──────────────────────────────────────────────────────────────────
+  const [suppliers, setSuppliers] = useState<string[]>([])
+  const [supplierInput, setSupplierInput] = useState('')
+  const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>(['T-IN'])
   const [main, setMain] = useState({
-    our_ref: '', supplier: '', client_id: '', job_type: 'T-IN' as JobType,
-    flight_type: '', status: 'new', job_status: 'OPEN', assigned_to_id: '',
-    payment_timing: 'on_dispatch', priority: 'ROUTINE',
+    our_ref: '', client_id: '', flight_type: '', status: 'new',
+    job_status: 'OPEN', assigned_to_id: '', payment_timing: 'on_dispatch', priority: 'ROUTINE',
   })
   const [cargo, setCargo] = useState({
-    origin_city: '', dest_city: '', ntr: 'GEN' as NTR, pieces: '1',
+    origin_city: '', transit_city: '', dest_city: '', ntr: 'GEN' as NTR, pieces: '1',
     weight_kg: '', chargeable_weight: '', handed_over: false,
+    handed_over_by_id: '',
     boe_number: '', shipper_2: '', consignee_2: '', receiver_name: '',
     receiver_phone: '', notes: '', instr: '',
   })
@@ -95,29 +118,33 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const [awbPreviewURL, setAWBPreviewURL] = useState('')
   const [awbIsPDF, setAWBIsPDF] = useState(false)
   const [ocrState, setOcrState] = useState<'idle' | 'uploading' | 'ocr' | 'done' | 'error'>('idle')
+  const awb2FileRef = useRef<HTMLInputElement>(null)
+  const [awb2FileURL, setAWB2FileURL] = useState('')
+  const [awb2FileKey, setAWB2FileKey] = useState('')
+  const [awb2FileName, setAWB2FileName] = useState('')
+  const [awb2Uploading, setAWB2Uploading] = useState(false)
   const [ocrProgress, setOcrProgress] = useState(0)
   const [ocrConfidence, setOcrConfidence] = useState(0)
-
-  type LocalDocCat = 'invoice' | 'packing_list' | 'boe'
-  type LocalDoc = { localId: string; category: LocalDocCat; file_key: string; file_url: string; file_name: string; state: 'uploading' | 'done' | 'error' }
   const [localDocs, setLocalDocs] = useState<LocalDoc[]>([])
-
+  const [docCategory, setDocCategory] = useState('')
   const [fin, setFin] = useState({
     total_amount: '', add_amount: '', currency: 'USD' as Currency,
     exchange_rate: '3.67', inv_amount_usd: '', inv_amount_aed: '',
     invoice_status: '', cx_notified: false,
   })
+  const [noteText, setNoteText] = useState('')
 
-  // ── Заполнение из order ────────────────────────────────────────────────────
+  // ── Populate from order ────────────────────────────────────────────────────
   useEffect(() => {
     if (!order) return
     setTab('main')
     setError('')
+    setSuppliers(order.supplier ? order.supplier.split(',').map(s => s.trim()).filter(Boolean) : [])
+    setSupplierInput('')
+    setSelectedJobTypes(order.job_type ? order.job_type.split(',').map(s => s.trim()).filter(Boolean) : ['T-IN'])
     setMain({
       our_ref:        order.our_ref || '',
-      supplier:       order.supplier || '',
       client_id:      String(order.client_id || ''),
-      job_type:       (order.job_type as JobType) || 'T-IN',
       flight_type:    order.flight_type || '',
       status:         order.status || 'new',
       job_status:     order.job_status || 'OPEN',
@@ -127,21 +154,26 @@ export default function EditOrderModal({ order, onClose }: Props) {
     })
     const pieces = order.pieces || 1
     setCargo({
-      origin_city:       order.origin_city || '',
-      dest_city:         order.dest_city || '',
-      ntr:               (order.ntr as NTR) || 'GEN',
-      pieces:            String(pieces),
-      weight_kg:         order.weight_kg ? String(order.weight_kg) : '',
-      chargeable_weight: order.chargeable_weight ? String(order.chargeable_weight) : '',
-      handed_over:       order.handed_over || false,
-      boe_number:        order.boe_number || '',
-      shipper_2:         order.shipper_2 || '',
-      consignee_2:       order.consignee_2 || '',
-      receiver_name:     order.receiver_name || '',
-      receiver_phone:    order.receiver_phone || '',
-      notes:             order.notes || '',
-      instr:             order.instr || '',
+      origin_city:        order.origin_city || '',
+      transit_city:       order.transit_city || '',
+      dest_city:          order.dest_city || '',
+      ntr:                (order.ntr as NTR) || 'GEN',
+      pieces:             String(pieces),
+      weight_kg:          order.weight_kg ? String(order.weight_kg) : '',
+      chargeable_weight:  order.chargeable_weight ? String(order.chargeable_weight) : '',
+      handed_over:        order.handed_over || false,
+      handed_over_by_id:  order.handed_over_by_id ? String(order.handed_over_by_id) : '',
+      boe_number:         order.boe_number || '',
+      shipper_2:          order.shipper_2 || '',
+      consignee_2:        order.consignee_2 || '',
+      receiver_name:      order.receiver_name || '',
+      receiver_phone:     order.receiver_phone || '',
+      notes:              order.notes || '',
+      instr:              order.instr || '',
     })
+    setAWB2FileURL(order.awb2_file_url || '')
+    setAWB2FileKey(order.awb2_file_key || '')
+    setAWB2FileName('')
     setDims(parseDims(order.dimensions || '', pieces))
     setDocs({
       final_awb: order.final_awb || '',
@@ -153,6 +185,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
       if (order.awb.file_url) {
         setAWBFileURL(order.awb.file_url)
         setAWBFileKey(order.awb.file_key || '')
+        setAWBFileName('')
         setOcrState('done')
         setOcrConfidence(95)
       }
@@ -172,22 +205,64 @@ export default function EditOrderModal({ order, onClose }: Props) {
       invoice_status: order.invoice_status || '',
       cx_notified:    order.cx_notified || false,
     })
-    setLocalDocs((order.documents || []).map(d => ({
+    setLocalDocs([])
+    setNoteText('')
+  }, [order])
+
+  // ── Fetch full order (list endpoint doesn't preload Documents) ────────────
+  const { data: fullOrder } = useQuery({
+    queryKey: ['order', order?.id],
+    queryFn: () => ordersApi.get(order!.id).then(r => r.data),
+    enabled: !!order?.id,
+  })
+
+  useEffect(() => {
+    if (!fullOrder) return
+    setLocalDocs((fullOrder.documents || []).map(d => ({
       localId: String(d.id),
-      category: d.category as LocalDocCat,
+      category: d.category,
       file_key: d.file_key,
       file_url: d.file_url,
       file_name: d.file_name,
       state: 'done' as const,
     })))
-    setNoteText('')
-  }, [order])
+  }, [fullOrder])
 
-  // ── Данные ────────────────────────────────────────────────────────────────
+  // ── Catalog data ──────────────────────────────────────────────────────────
   const { data: jobTypes = [] } = useQuery({
     queryKey: ['catalogs', 'job_type'],
     queryFn: () => catalogsApi.list('job_type', true).then(r => r.data),
   })
+
+  const { data: statuses = [] } = useQuery({
+    queryKey: ['catalogs', 'order_status'],
+    queryFn: () => catalogsApi.list('order_status', true).then(r => r.data),
+  })
+
+  const { data: ntrTypes = [] } = useQuery({
+    queryKey: ['catalogs', 'ntr'],
+    queryFn: () => catalogsApi.list('ntr', true).then(r => r.data),
+  })
+
+  const { data: docCatalog = [] } = useQuery({
+    queryKey: ['catalogs', 'doc_category'],
+    queryFn: () => catalogsApi.list('doc_category', true).then(r => r.data),
+  })
+
+  const { data: shipperCatalog = [] } = useQuery({
+    queryKey: ['catalogs', 'shipper'],
+    queryFn: () => catalogsApi.list('shipper', true).then(r => r.data),
+  })
+
+  const docCategories = docCatalog.length > 0
+    ? docCatalog.map(c => ({ value: c.value, label: c.label }))
+    : DEFAULT_DOC_CATEGORIES
+
+  const effectiveJobTypes = jobTypes.length > 0 ? jobTypes : DEFAULT_JOB_TYPES
+
+  const fieldLabel = (field: string): string =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    t(`orders.edit.fieldNames.${field}` as any, { defaultValue: field })
 
   const { data: logs = [], isLoading: logsLoading } = useQuery({
     queryKey: ['order-logs', order?.id],
@@ -195,15 +270,25 @@ export default function EditOrderModal({ order, onClose }: Props) {
     enabled: !!order && tab === 'history',
   })
 
-  // ── Заметки ───────────────────────────────────────────────────────────────
-  const [noteText, setNoteText] = useState('')
-
   const { data: notes = [], isLoading: notesLoading } = useQuery({
     queryKey: ['order-notes', order?.id],
     queryFn: () => ordersApi.getNotes(order!.id).then(r => r.data),
     enabled: !!order,
   })
 
+  const { data: clients = [] } = useQuery({
+    queryKey: ['clients'],
+    queryFn: () => clientsApi.list().then(r => r.data),
+    enabled: !!order,
+  })
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users-list'],
+    queryFn: () => usersApi.list().then(r => r.data).catch(() => []),
+    enabled: !!order,
+  })
+
+  // ── Notes mutations ────────────────────────────────────────────────────────
   const addNoteMutation = useMutation({
     mutationFn: (text: string) => ordersApi.addNote(order!.id, text),
     onSuccess: () => {
@@ -217,17 +302,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['order-notes', order?.id] }),
   })
 
-  const { data: statuses = [] } = useQuery({
-    queryKey: ['catalogs', 'order_status'],
-    queryFn: () => catalogsApi.list('order_status', true).then(r => r.data),
-  })
-
-  const { data: ntrTypes = [] } = useQuery({
-    queryKey: ['catalogs', 'ntr'],
-    queryFn: () => catalogsApi.list('ntr', true).then(r => r.data),
-  })
-
-  // ── Авто-расчёт груза ─────────────────────────────────────────────────────
+  // ── Cargo auto-calc ────────────────────────────────────────────────────────
   const volumetricCWT = useMemo(() => {
     const total = dims.reduce((sum, d) =>
       sum + (parseFloat(d.l) || 0) * (parseFloat(d.w) || 0) * (parseFloat(d.h) || 0), 0)
@@ -263,18 +338,22 @@ export default function EditOrderModal({ order, onClose }: Props) {
     })
   }
 
-  const { data: clients = [] } = useQuery({
-    queryKey: ['clients'],
-    queryFn: () => clientsApi.list().then(r => r.data),
-    enabled: !!order,
-  })
-  const { data: users = [] } = useQuery({
-    queryKey: ['users-list'],
-    queryFn: () => usersApi.list().then(r => r.data).catch(() => []),
-    enabled: !!order,
-  })
+  // ── Supplier tag input ─────────────────────────────────────────────────────
+  const addSupplier = () => {
+    const v = supplierInput.trim()
+    if (v && !suppliers.includes(v)) setSuppliers(p => [...p, v])
+    setSupplierInput('')
+  }
+  const removeSupplier = (s: string) => setSuppliers(p => p.filter(x => x !== s))
 
-  // ── Мутации ────────────────────────────────────────────────────────────────
+  // ── Job type toggle ────────────────────────────────────────────────────────
+  const toggleJobType = (jt: string) => {
+    setSelectedJobTypes(prev =>
+      prev.includes(jt) ? prev.filter(x => x !== jt) : [...prev, jt]
+    )
+  }
+
+  // ── Mutations ──────────────────────────────────────────────────────────────
   const updateMutation = useMutation({
     mutationFn: (data: object) => ordersApi.update(order!.id, data as Partial<Order>),
     onSuccess: () => {
@@ -288,12 +367,14 @@ export default function EditOrderModal({ order, onClose }: Props) {
     mutationFn: (file: File) => filesApi.uploadAWB(file),
   })
 
-  const handleDocFileChange = async (category: LocalDocCat, e: React.ChangeEvent<HTMLInputElement>) => {
+  // ── Document upload ────────────────────────────────────────────────────────
+  const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
+    const cat = docCategory || docCategories[0]?.value || 'other'
     const newDocs: LocalDoc[] = files.map(f => ({
       localId: `${Date.now()}-${Math.random()}`,
-      category, file_key: '', file_url: '', file_name: f.name, state: 'uploading',
+      category: cat, file_key: '', file_url: '', file_name: f.name, state: 'uploading',
     }))
     setLocalDocs(prev => [...prev, ...newDocs])
     await Promise.all(files.map(async (file, i) => {
@@ -311,7 +392,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
 
   const removeLocalDoc = (localId: string) => setLocalDocs(prev => prev.filter(d => d.localId !== localId))
 
-  // ── Загрузка AWB ──────────────────────────────────────────────────────────
+  // ── AWB upload ─────────────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -345,7 +426,25 @@ export default function EditOrderModal({ order, onClose }: Props) {
     }
   }
 
-  // ── Авто-расчёт AED ───────────────────────────────────────────────────────
+  // ── AWB2 upload ────────────────────────────────────────────────────────────
+  const handleAWB2FileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAWB2FileName(file.name)
+    setAWB2Uploading(true)
+    try {
+      const res = await uploadMutation.mutateAsync(file)
+      setAWB2FileKey(res.data.file_key)
+      setAWB2FileURL(res.data.file_url)
+    } catch {
+      // keep old values on error
+    } finally {
+      setAWB2Uploading(false)
+    }
+    e.target.value = ''
+  }
+
+  // ── Finance auto-calc ──────────────────────────────────────────────────────
   const handleInvUSDChange = (val: string) => {
     const usd = parseFloat(val) || 0
     const rate = parseFloat(fin.exchange_rate) || 3.67
@@ -357,21 +456,25 @@ export default function EditOrderModal({ order, onClose }: Props) {
     setFin(p => ({ ...p, exchange_rate: val, inv_amount_aed: usd > 0 ? (usd * rate).toFixed(2) : p.inv_amount_aed }))
   }
 
-  // ── Сабмит ────────────────────────────────────────────────────────────────
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!main.client_id) { setError(t('orders.create.errorSelectClient')); return }
     setError('')
     updateMutation.mutate({
-      our_ref: main.our_ref, supplier: main.supplier,
-      client_id: Number(main.client_id), job_type: main.job_type,
-      flight_type: main.flight_type,
-      status: main.status, job_status: main.job_status,
+      our_ref:        main.our_ref,
+      supplier:       suppliers.join(','),
+      client_id:      Number(main.client_id),
+      job_type:       selectedJobTypes.join(','),
+      flight_type:    main.flight_type,
+      status:         main.status,
+      job_status:     main.job_status,
       assigned_to_id: main.assigned_to_id ? Number(main.assigned_to_id) : null,
       payment_timing: main.payment_timing,
-      priority: main.priority,
+      priority:       main.priority,
       origin_country: '', origin_city: cargo.origin_city,
-      dest_country: '', dest_city: cargo.dest_city,
+      transit_city:   cargo.transit_city,
+      dest_country:   '', dest_city: cargo.dest_city,
       ntr: cargo.ntr, pieces: Number(cargo.pieces) || 1,
       weight_kg: Number(cargo.weight_kg) || 0,
       chargeable_weight: autoCWT > 0 ? autoCWT : (Number(cargo.chargeable_weight) || 0),
@@ -380,10 +483,13 @@ export default function EditOrderModal({ order, onClose }: Props) {
       documents: localDocs.filter(d => d.state === 'done').map(d => ({
         category: d.category, file_key: d.file_key, file_url: d.file_url, file_name: d.file_name,
       })),
-      shipper_2: cargo.shipper_2,
-      consignee_2: cargo.consignee_2, receiver_name: cargo.receiver_name,
-      receiver_phone: cargo.receiver_phone, notes: cargo.notes, instr: cargo.instr,
+      shipper_2: cargo.shipper_2, consignee_2: cargo.consignee_2,
+      receiver_name: cargo.receiver_name, receiver_phone: cargo.receiver_phone,
+      notes: cargo.notes, instr: cargo.instr,
+      handed_over_by_id: cargo.handed_over_by_id ? Number(cargo.handed_over_by_id) : null,
       final_awb: docs.final_awb, xbd_awb: docs.xbd_awb, svo_awb: docs.svo_awb,
+      awb2_file_key: awb2FileKey || order?.awb2_file_key || '',
+      awb2_file_url: awb2FileURL || order?.awb2_file_url || '',
       awb: awbFileKey ? { ...awb, file_key: awbFileKey, file_url: awbFileURL } : (order?.awb || undefined),
       total_amount: Number(fin.total_amount) || 0,
       add_amount: Number(fin.add_amount) || 0,
@@ -399,14 +505,15 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const sec = 'text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3'
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: 'main',    label: t('orders.create.tabMain') },
-    { key: 'cargo',   label: t('orders.create.tabCargo') },
-    { key: 'awb',     label: t('orders.create.tabAwb') },
-    { key: 'finance', label: t('orders.create.tabFinance') },
-    { key: 'history', label: t('orders.edit.tabHistory') },
+    { key: 'main',      label: t('orders.create.tabMain') },
+    { key: 'cargo',     label: t('orders.create.tabCargo') },
+    { key: 'awb',       label: t('orders.create.tabAwb') },
+    { key: 'finance',   label: t('orders.create.tabFinance') },
+    { key: 'documents', label: t('orders.edit.tabDocuments') },
+    { key: 'history',   label: t('orders.edit.tabHistory') },
   ]
 
-  // Группируем логи по пользователю + временной близости (≤3 сек = одно сохранение)
+  // Group logs by user + time proximity
   const groupedLogs = (() => {
     if (!logs.length) return []
     const groups: { log: OrderLog; changes: OrderLog[] }[] = []
@@ -433,14 +540,19 @@ export default function EditOrderModal({ order, onClose }: Props) {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-5 -mx-6 px-6 overflow-x-auto">
-        {TABS.map(t => (
-          <button key={t.key} type="button" onClick={() => setTab(t.key)}
+        {TABS.map(tb => (
+          <button key={tb.key} type="button" onClick={() => setTab(tb.key)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition ${
-              tab === t.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === tb.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
-            {t.label}
-            {t.key === 'awb' && awbFileKey && (
+            {tb.label}
+            {tb.key === 'awb' && awbFileKey && (
               <span className="ml-1.5 w-2 h-2 rounded-full bg-green-500 inline-block" />
+            )}
+            {tb.key === 'documents' && localDocs.filter(d => d.state === 'done').length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+                {localDocs.filter(d => d.state === 'done').length}
+              </span>
             )}
           </button>
         ))}
@@ -448,7 +560,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
 
       <form onSubmit={handleSubmit}>
 
-        {/* ── TAB 1: ОСНОВНОЕ ── */}
+        {/* ── TAB 1: MAIN ── */}
         <div className={tab === 'main' ? 'space-y-4' : 'hidden'}>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -457,27 +569,64 @@ export default function EditOrderModal({ order, onClose }: Props) {
                 className={inp} placeholder={t('orders.create.ourRefPlaceholder')} />
             </div>
             <div>
-              <label className={lbl}>JOB TYPE</label>
-              <select value={main.job_type}
-                onChange={e => setMain(p => ({...p, job_type: e.target.value as JobType}))} className={inp}>
-                {jobTypes.map(j => <option key={j.value} value={j.value}>{j.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={lbl}>SUPPLIER</label>
-              <input value={main.supplier} onChange={e => setMain(p => ({...p, supplier: e.target.value}))}
-                className={inp} placeholder="AIRBORNE, AVNUR TRADING..." />
-            </div>
-            <div>
               <label className={lbl}>CUSTOMER *</label>
               <select value={main.client_id}
                 onChange={e => setMain(p => ({...p, client_id: e.target.value}))} className={inp} required>
                 <option value="">{t('orders.create.selectClient')}</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+            </div>
+          </div>
+
+          {/* Multi-Supplier tag input */}
+          <div>
+            <label className={lbl}>{t('orders.create.suppliersLabel')}</label>
+            <div className="flex gap-2">
+              <input
+                value={supplierInput}
+                onChange={e => setSupplierInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSupplier() } }}
+                className={inp}
+                placeholder={t('orders.create.supplierPlaceholder')}
+              />
+              <button type="button" onClick={addSupplier}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition flex items-center gap-1">
+                <Plus size={14} />
+              </button>
+            </div>
+            {suppliers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {suppliers.map(s => (
+                  <span key={s} className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-full">
+                    {s}
+                    <button type="button" onClick={() => removeSupplier(s)}
+                      className="text-blue-400 hover:text-blue-700 transition">
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Multi-Job Type toggle */}
+          <div>
+            <label className={lbl}>{t('orders.create.jobTypesLabel')}</label>
+            <div className="flex flex-wrap gap-2">
+              {effectiveJobTypes.map(jt => (
+                <button
+                  key={jt.value}
+                  type="button"
+                  onClick={() => toggleJobType(jt.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                    selectedJobTypes.includes(jt.value)
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {jt.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -570,14 +719,22 @@ export default function EditOrderModal({ order, onClose }: Props) {
           </div>
         </div>
 
-        {/* ── TAB 2: ГРУЗ ── */}
+        {/* ── TAB 2: CARGO ── */}
         <div className={tab === 'cargo' ? 'space-y-4' : 'hidden'}>
-          <div className="grid grid-cols-2 gap-4">
+
+          {/* Route: ORG → TRANSIT → DES */}
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.orgLabel')}</label>
               <input value={cargo.origin_city}
                 onChange={e => setCargo(p => ({...p, origin_city: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)}))}
                 className={`${inp} uppercase tracking-widest font-mono`} placeholder="DXB" maxLength={3} />
+            </div>
+            <div>
+              <label className={lbl}>TRANSIT</label>
+              <input value={cargo.transit_city}
+                onChange={e => setCargo(p => ({...p, transit_city: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)}))}
+                className={`${inp} uppercase tracking-widest font-mono`} placeholder="DOH" maxLength={3} />
             </div>
             <div>
               <label className={lbl}>{t('orders.create.desLabel')}</label>
@@ -610,7 +767,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
               </div>
             </div>
 
-            {/* DIMS rows */}
             <div className="mb-3">
               <label className={lbl}>{t('orders.create.dimsCm')}</label>
               <div className="space-y-1.5">
@@ -641,7 +797,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
               )}
             </div>
 
-            {/* CWT + CBM */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={lbl}>
@@ -662,13 +817,23 @@ export default function EditOrderModal({ order, onClose }: Props) {
               </div>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-3 grid grid-cols-2 gap-3 items-end">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cargo.handed_over}
                   onChange={e => setCargo(p => ({...p, handed_over: e.target.checked}))}
                   className="accent-blue-600 w-4 h-4" />
-                <span className="text-sm font-medium text-gray-700">H.OVER (Handed Over)</span>
+                <span className="text-sm font-medium text-gray-700">{t('orders.create.handedOver')}</span>
               </label>
+              <div>
+                <label className={lbl}>Handed Over By</label>
+                <select value={cargo.handed_over_by_id}
+                  onChange={e => setCargo(p => ({...p, handed_over_by_id: e.target.value}))} className={inp}>
+                  <option value="">— не выбрано —</option>
+                  {(users as {id: number; name: string}[]).map(u => (
+                    <option key={u.id} value={u.id}>{u.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
@@ -677,64 +842,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
             <input value={cargo.boe_number}
               onChange={e => setCargo(p => ({...p, boe_number: e.target.value}))}
               className={inp} placeholder="20100313..." />
-
-            {/* Документы по категориям */}
-            {(() => {
-              const cats: { key: LocalDocCat; ref: React.RefObject<HTMLInputElement | null> }[] = [
-                { key: 'invoice',      ref: docRefInvoice },
-                { key: 'packing_list', ref: docRefPackingList },
-                { key: 'boe',          ref: docRefBoe },
-              ]
-              return (
-                <div className="mt-2 space-y-2">
-                  {cats.map(({ key, ref }) => {
-                    const catDocs = localDocs.filter(d => d.category === key)
-                    const catLabel = t(`orders.docCategories.${key}`)
-                    return (
-                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
-                          <span className="text-xs font-semibold text-gray-600">{catLabel}</span>
-                          <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png"
-                            multiple onChange={e => handleDocFileChange(key, e)} className="hidden" />
-                          <button type="button" onClick={() => ref.current?.click()}
-                            className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                            <Upload size={11} /> {t('common.add')}
-                          </button>
-                        </div>
-                        {catDocs.length === 0 ? (
-                          <button type="button" onClick={() => ref.current?.click()}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition text-xs text-gray-400">
-                            <Upload size={12} className="shrink-0 text-gray-300" />
-                            {catLabel}...
-                          </button>
-                        ) : (
-                          <div className="divide-y divide-gray-50">
-                            {catDocs.map(doc => (
-                              <div key={doc.localId} className="flex items-center gap-2 px-3 py-2 text-xs">
-                                {doc.state === 'uploading' && <Loader2 size={12} className="text-blue-500 animate-spin shrink-0" />}
-                                {doc.state === 'done'      && <CheckCircle2 size={12} className="text-green-500 shrink-0" />}
-                                {doc.state === 'error'     && <AlertCircle size={12} className="text-red-500 shrink-0" />}
-                                <span className="flex-1 truncate text-gray-700">{doc.file_name}</span>
-                                {doc.state === 'done' && doc.file_url && (
-                                  <a href={doc.file_url} target="_blank" rel="noreferrer"
-                                    className="text-blue-600 hover:underline flex items-center gap-0.5 shrink-0">
-                                    <ExternalLink size={10} /> {t('common.open')}
-                                  </a>
-                                )}
-                                <button type="button" onClick={() => removeLocalDoc(doc.localId)}
-                                  className="text-gray-300 hover:text-red-500 transition shrink-0">
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -753,9 +860,18 @@ export default function EditOrderModal({ order, onClose }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.shipper2')}</label>
+              {shipperCatalog.length > 0 && (
+                <select
+                  value={shipperCatalog.find(s => s.value === cargo.shipper_2) ? cargo.shipper_2 : ''}
+                  onChange={e => { if (e.target.value) setCargo(p => ({...p, shipper_2: e.target.value})) }}
+                  className={`${inp} mb-1.5`}>
+                  <option value="">— выбрать из списка —</option>
+                  {shipperCatalog.map(s => <option key={s.id} value={s.value}>{s.label}</option>)}
+                </select>
+              )}
               <textarea value={cargo.shipper_2}
                 onChange={e => setCargo(p => ({...p, shipper_2: e.target.value}))}
-                className={inp} rows={3} placeholder={t('orders.create.companyDetailsPlaceholder')} />
+                className={inp} rows={2} placeholder={t('orders.create.companyDetailsPlaceholder')} />
             </div>
             <div>
               <label className={lbl}>{t('orders.create.consignee2')}</label>
@@ -780,9 +896,9 @@ export default function EditOrderModal({ order, onClose }: Props) {
             </div>
           </div>
 
-          {/* ── Notes (комментарии) ── */}
+          {/* Notes / Comments */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
-            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center">
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 {t('orders.edit.commentsSection')}
                 {notes.length > 0 && (
@@ -792,8 +908,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                 )}
               </span>
             </div>
-
-            {/* Ввод новой заметки */}
             <div className="p-3 border-b border-gray-100 flex gap-2">
               <textarea
                 value={noteText}
@@ -817,8 +931,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                 {addNoteMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : '+'}
               </button>
             </div>
-
-            {/* Список заметок */}
             <div className="divide-y divide-gray-50 max-h-56 overflow-y-auto">
               {notesLoading ? (
                 <div className="p-4 text-center text-gray-400 text-sm">{t('common.loading')}</div>
@@ -848,7 +960,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                         type="button"
                         onClick={() => deleteNoteMutation.mutate(note.id)}
                         className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition p-1 shrink-0"
-                        title={t('common.delete')}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -886,7 +997,38 @@ export default function EditOrderModal({ order, onClose }: Props) {
             </div>
           </div>
 
-          {/* Upload AWB */}
+          {/* 2-LEG AWB document upload */}
+          <div>
+            <p className={sec}>2-LEG AWB DOCUMENT</p>
+            <input ref={awb2FileRef} type="file" accept=".pdf,.jpg,.jpeg,.png"
+              onChange={handleAWB2FileChange} className="hidden" />
+            {awb2Uploading ? (
+              <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <Loader2 size={16} className="text-blue-500 animate-spin" />
+                <p className="text-sm text-blue-700">{t('orders.create.uploading')}</p>
+              </div>
+            ) : awb2FileURL ? (
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle2 size={16} className="text-green-600" />
+                <p className="text-sm font-medium text-green-800 flex-1 truncate">
+                  {awb2FileName || '2-LEG AWB загружен'}
+                </p>
+                <a href={awb2FileURL} target="_blank" rel="noreferrer"
+                  className="text-xs text-blue-600 flex items-center gap-1 hover:underline shrink-0">
+                  <ExternalLink size={12} /> {t('common.open')}
+                </a>
+                <button type="button" onClick={() => awb2FileRef.current?.click()}
+                  className="text-xs text-gray-500 hover:underline shrink-0">{t('common.replace')}</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => awb2FileRef.current?.click()}
+                className="w-full flex items-center justify-center gap-3 p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition">
+                <Upload size={18} className="text-gray-400" />
+                <span className="text-sm font-medium text-gray-700">Загрузить 2-LEG AWB документ</span>
+              </button>
+            )}
+          </div>
+
           <div>
             <p className={sec}>{t('orders.edit.awbDocSection')}</p>
             <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png"
@@ -948,7 +1090,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                 </div>
               </button>
             )}
-
             {awbPreviewURL && ocrState !== 'idle' && (
               <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
                 <p className="text-xs text-gray-500 px-3 py-1.5 bg-gray-50 border-b">{t('orders.create.awbDocPreview')}</p>
@@ -991,7 +1132,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
           )}
         </div>
 
-        {/* ── TAB 4: ФИНАНСЫ ── */}
+        {/* ── TAB 4: FINANCE ── */}
         <div className={tab === 'finance' ? 'space-y-4' : 'hidden'}>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -1038,7 +1179,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
             </div>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <label className={lbl}>Invoice Status</label>
+                <label className={lbl}>{t('orders.edit.invoiceStatusLabel')}</label>
                 <select value={fin.invoice_status}
                   onChange={e => setFin(p => ({...p, invoice_status: e.target.value}))} className={inp}>
                   {INVOICE_STATUSES.map(s => <option key={s} value={s}>{s || t('orders.create.invoiceNotSet')}</option>)}
@@ -1049,7 +1190,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
                   <input type="checkbox" checked={fin.cx_notified}
                     onChange={e => setFin(p => ({...p, cx_notified: e.target.checked}))}
                     className="accent-blue-600 w-4 h-4" />
-                  <span className="text-sm font-medium text-gray-700">CX NOTIFIED</span>
+                  <span className="text-sm font-medium text-gray-700">{t('orders.edit.cxNotified')}</span>
                 </label>
               </div>
             </div>
@@ -1073,7 +1214,70 @@ export default function EditOrderModal({ order, onClose }: Props) {
           )}
         </div>
 
-        {/* ── TAB 5: ИСТОРИЯ ── */}
+        {/* ── TAB 5: DOCUMENTS ── */}
+        <div className={tab === 'documents' ? 'space-y-4' : 'hidden'}>
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <p className={sec}>{t('orders.edit.attachDocument')}</p>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className={lbl}>{t('orders.edit.categoryLabel')}</label>
+                <select value={docCategory}
+                  onChange={e => setDocCategory(e.target.value)}
+                  className={inp}>
+                  {docCategories.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <input ref={docFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                  multiple onChange={handleDocFileChange} className="hidden" />
+                <button type="button" onClick={() => {
+                    if (!docCategory && docCategories.length > 0) setDocCategory(docCategories[0].value)
+                    docFileRef.current?.click()
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition">
+                  <Upload size={14} /> {t('orders.edit.uploadFiles')}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {localDocs.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              {t('orders.edit.noDocuments')}
+            </div>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="divide-y divide-gray-100">
+                {localDocs.map(doc => {
+                  const catLabel = docCategories.find(c => c.value === doc.category)?.label || doc.category
+                  return (
+                    <div key={doc.localId} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded shrink-0">{catLabel}</span>
+                      {doc.state === 'uploading' && <Loader2 size={13} className="text-blue-500 animate-spin shrink-0" />}
+                      {doc.state === 'done'      && <CheckCircle2 size={13} className="text-green-500 shrink-0" />}
+                      {doc.state === 'error'     && <AlertCircle size={13} className="text-red-500 shrink-0" />}
+                      <span className="flex-1 text-sm text-gray-700 truncate">{doc.file_name}</span>
+                      {doc.state === 'done' && doc.file_url && (
+                        <a href={doc.file_url} target="_blank" rel="noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-0.5 shrink-0">
+                          <ExternalLink size={11} /> {t('common.open')}
+                        </a>
+                      )}
+                      <button type="button" onClick={() => removeLocalDoc(doc.localId)}
+                        className="text-gray-300 hover:text-red-500 transition shrink-0 ml-1">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── TAB 6: HISTORY ── */}
         <div className={tab === 'history' ? '' : 'hidden'}>
           {logsLoading ? (
             <div className="py-12 text-center text-gray-400">
@@ -1096,7 +1300,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                 const timeStr = dt.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
                 return (
                   <div key={group.log.id} className="flex gap-3">
-                    {/* Timeline line */}
                     <div className="flex flex-col items-center w-8 shrink-0">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
                         group.log.action === 'created' ? 'bg-green-500' : 'bg-blue-500'
@@ -1107,7 +1310,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
                         <div className="w-0.5 bg-gray-200 flex-1 my-1 min-h-[12px]" />
                       )}
                     </div>
-                    {/* Content */}
                     <div className="flex-1 pb-4 min-w-0">
                       <div className="flex items-baseline gap-2 mb-1 flex-wrap">
                         <span className="text-sm font-semibold text-gray-800">{u?.name || '—'}</span>
@@ -1119,7 +1321,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
                         <div className="space-y-1">
                           {group.changes.map((log, j) => (
                             <div key={j} className="text-sm flex items-center gap-1 flex-wrap">
-                              <span className="font-medium text-gray-600 shrink-0">{log.field}:</span>
+                              <span className="font-medium text-gray-600 shrink-0">{fieldLabel(log.field)}:</span>
                               <span className={`px-1.5 py-0.5 rounded text-xs ${log.old_value ? 'bg-red-50 text-red-500 line-through' : 'text-gray-400'}`}>
                                 {log.old_value || '—'}
                               </span>
@@ -1143,13 +1345,13 @@ export default function EditOrderModal({ order, onClose }: Props) {
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
 
         <div className="flex justify-between items-center pt-4 mt-4 border-t border-gray-100">
-          <div className="flex gap-2 text-xs text-gray-400">
-            {TABS.map((t, i) => (
-              <button key={t.key} type="button" onClick={() => setTab(t.key)}
+          <div className="flex gap-2 text-xs text-gray-400 flex-wrap">
+            {TABS.map((tb, i) => (
+              <button key={tb.key} type="button" onClick={() => setTab(tb.key)}
                 className={`px-2 py-1 rounded transition ${
-                  tab === t.key ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-gray-100'
+                  tab === tb.key ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-gray-100'
                 }`}>
-                {i + 1}. {t.label}
+                {i + 1}. {tb.label}
               </button>
             ))}
           </div>

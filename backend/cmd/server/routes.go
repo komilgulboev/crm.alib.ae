@@ -20,6 +20,7 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 	clientHandler := handlers.NewClientHandler(db)
 	orderHandler := handlers.NewOrderHandler(db, tgBot)
 	telegramHandler := handlers.NewTelegramHandler(db, tgBot)
+	instructionHandler := handlers.NewInstructionHandler(db, cfg)
 
 	if cfg.TelegramWebhookURL != "" {
 		// HTTPS сервер: регистрируем webhook
@@ -108,6 +109,16 @@ func setupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config, minio *storage.
 		middleware.RequireRoles(models.RoleSuperAdmin, models.RoleManager, models.RoleAccountant),
 		fileHandler.UploadAWB,
 	)
+
+	// Instructions — transit email configs + send
+	instrConfigs := protected.Group("/transit-emails")
+	instrConfigs.GET("", instructionHandler.ListConfigs)
+	instrConfigs.POST("", middleware.RequireRoles(models.RoleSuperAdmin), instructionHandler.CreateConfig)
+	instrConfigs.PUT("/:id", middleware.RequireRoles(models.RoleSuperAdmin), instructionHandler.UpdateConfig)
+	instrConfigs.DELETE("/:id", middleware.RequireRoles(models.RoleSuperAdmin), instructionHandler.DeleteConfig)
+
+	protected.GET("/orders/:id/instruction", instructionHandler.GetOrderInstruction)
+	protected.POST("/instructions/send", instructionHandler.SendEmail)
 
 	// Каталоги
 	catalogs := protected.Group("/catalogs")

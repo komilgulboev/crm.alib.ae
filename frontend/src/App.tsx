@@ -9,6 +9,7 @@ import PaymentsPage from './pages/payments/PaymentsPage'
 import UsersPage from './pages/users/UsersPage'
 import BankAccountsPage from './pages/settings/BankAccountsPage'
 import CatalogsPage from './pages/admin/CatalogsPage'
+import InstructionsPage from './pages/instructions/InstructionsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="bank-accounts" element={<BankAccountsPage />} />
             <Route path="catalogs" element={<CatalogsPage />} />
+            <Route path="instructions" element={<InstructionsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

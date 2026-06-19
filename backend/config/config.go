@@ -21,9 +21,15 @@ type Config struct {
 	MinIOBucket    string
 	MinIOUseSSL    bool
 
-	AnthropicKey        string
-	TelegramBotToken    string
-	TelegramWebhookURL  string
+	AnthropicKey       string
+	TelegramBotToken   string
+	TelegramWebhookURL string
+
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
 }
 
 func Load() *Config {
@@ -47,6 +53,12 @@ func Load() *Config {
 		AnthropicKey:       getEnv("ANTHROPIC_API_KEY", ""),
 		TelegramBotToken:   getEnv("TELEGRAM_BOT_TOKEN", ""),
 		TelegramWebhookURL: getEnv("TELEGRAM_WEBHOOK_URL", ""),
+
+		SMTPHost:     getEnv("SMTP_HOST", ""),
+		SMTPPort:     getEnv("SMTP_PORT", "587"),
+		SMTPUser:     getEnv("SMTP_USER", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:     getEnv("SMTP_FROM", ""),
 	}
 }
 

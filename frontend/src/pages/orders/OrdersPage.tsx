@@ -56,7 +56,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   TOPAOG:   'bg-red-200 text-red-900 font-bold',
 }
 
-type ColKey = 'ref' | 'our_ref' | 'assigned' | 'supplier' | 'customer' | 'job_type' | 'org' | 'des' | 'ntr'
+type ColKey = 'ref' | 'our_ref' | 'assigned' | 'supplier' | 'customer' | 'job_type' | 'org' | 'transit' | 'des' | 'ntr'
   | 'pieces' | 'kg' | 'cwt' | 'status' | 'priority' | 'final_awb' | 'inv_usd' | 'inv_aed' | 'inv_status' | 'job_status' | 'date'
 
 const loadVisibleCols = (): Set<ColKey> => {
@@ -64,7 +64,7 @@ const loadVisibleCols = (): Set<ColKey> => {
     const raw = localStorage.getItem('orders_visible_cols')
     if (raw) return new Set(JSON.parse(raw) as ColKey[])
   } catch { /* ignore */ }
-  return new Set<ColKey>(['ref','our_ref','assigned','supplier','customer','job_type','org','des','ntr',
+  return new Set<ColKey>(['ref','our_ref','assigned','supplier','customer','job_type','org','transit','des','ntr',
     'pieces','kg','cwt','status','priority','final_awb','inv_usd','inv_aed','inv_status','job_status','date'])
 }
 
@@ -104,6 +104,7 @@ export default function OrdersPage() {
     { key: 'customer',   label: t('orders.cols.customer') },
     { key: 'job_type',   label: t('orders.cols.jobType') },
     { key: 'org',        label: t('orders.cols.org') },
+    { key: 'transit',    label: 'TRANSIT' },
     { key: 'final_awb',  label: t('orders.cols.finalAwb') },
     { key: 'des',        label: t('orders.cols.des') },
     { key: 'ntr',        label: t('orders.cols.ntr') },
@@ -303,6 +304,7 @@ export default function OrdersPage() {
                 {col('customer')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.customer')}</th>}
                 {col('job_type')   && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.jobType')}</th>}
                 {col('org')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.org')}</th>}
+                {col('transit')    && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">TRANSIT</th>}
                 {col('final_awb')  && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.finalAwb')}</th>}
                 {col('des')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.des')}</th>}
                 {col('ntr')        && <th className="text-left px-3 py-2.5 font-semibold text-gray-500">{t('orders.cols.ntr')}</th>}
@@ -339,21 +341,34 @@ export default function OrdersPage() {
                     </td>
                   )}
                   {col('supplier') && (
-                    <td className="px-3 py-2 text-gray-700 max-w-[100px] truncate">{order.supplier || '—'}</td>
+                    <td className="px-3 py-2 max-w-[120px]">
+                      {order.supplier ? (
+                        <div className="flex flex-wrap gap-0.5">
+                          {order.supplier.split(',').filter(Boolean).map((s, i) => (
+                            <span key={i} className="text-xs text-gray-700 truncate max-w-[100px]">{s.trim()}</span>
+                          ))}
+                        </div>
+                      ) : '—'}
+                    </td>
                   )}
                   {col('customer') && (
                     <td className="px-3 py-2 font-medium text-gray-900">{order.client?.name || '—'}</td>
                   )}
                   {col('job_type') && (
-                    <td className="px-3 py-2 whitespace-nowrap">
+                    <td className="px-3 py-2">
                       {order.job_type ? (
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${JOB_TYPE_COLORS[order.job_type] || 'bg-gray-100 text-gray-600'}`}>
-                          {order.job_type}
-                        </span>
+                        <div className="flex flex-wrap gap-0.5">
+                          {order.job_type.split(',').filter(Boolean).map((jt, i) => (
+                            <span key={i} className={`px-1.5 py-0.5 rounded text-xs font-medium ${JOB_TYPE_COLORS[jt.trim()] || 'bg-gray-100 text-gray-600'}`}>
+                              {jt.trim()}
+                            </span>
+                          ))}
+                        </div>
                       ) : '—'}
                     </td>
                   )}
                   {col('org') && <td className="px-3 py-2 font-mono text-gray-700">{order.origin_city || '—'}</td>}
+                  {col('transit') && <td className="px-3 py-2 font-mono text-gray-500">{order.transit_city || '—'}</td>}
                   {col('final_awb') && (
                     <td className="px-3 py-2 font-mono text-gray-600">{order.final_awb || '—'}</td>
                   )}

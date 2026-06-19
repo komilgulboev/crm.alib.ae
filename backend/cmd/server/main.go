@@ -45,6 +45,7 @@ func main() {
 		&models.OrderLog{},
 		&models.OrderNote{},
 		&models.OrderDocument{},
+		&models.TransitEmailConfig{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -109,6 +110,18 @@ func main() {
 		db.Create(&seeds)
 	}
 
+	// Seed shipper catalog if empty
+	var shipperCount int64
+	db.Model(&models.CatalogEntry{}).Where("type = ?", "shipper").Count(&shipperCount)
+	if shipperCount == 0 {
+		seeds := []models.CatalogEntry{
+			{Type: "shipper", Value: "AIRBORNE TOO",    Label: "AIRBORNE TOO",    SortOrder: 1, Active: true},
+			{Type: "shipper", Value: "TURBINAR TOO",    Label: "TURBINAR TOO",    SortOrder: 2, Active: true},
+			{Type: "shipper", Value: "ATB MACHINERY LOCAL", Label: "ATB MACHINERY LOCAL", SortOrder: 3, Active: true},
+		}
+		db.Create(&seeds)
+	}
+
 	// Seed ntr catalog if empty
 	var ntrCount int64
 	db.Model(&models.CatalogEntry{}).Where("type = ?", "ntr").Count(&ntrCount)
@@ -122,6 +135,46 @@ func main() {
 		}
 		db.Create(&seeds)
 	}
+
+	// Migrate order_logs: replace Russian field names with English technical keys
+	fieldRenames := [][2]string{
+		{"Статус", "status"},
+		{"Job Status", "job_status"},
+		{"Приоритет", "priority"},
+		{"Тип работы", "job_type"},
+		{"Тип рейса", "flight_type"},
+		{"OUR REF", "our_ref"},
+		{"Поставщик", "supplier"},
+		{"Откуда", "origin_city"},
+		{"Куда", "dest_city"},
+		{"NTR", "ntr"},
+		{"Мест", "pieces"},
+		{"Вес кг", "weight_kg"},
+		{"CWT", "chargeable_weight"},
+		{"Размеры", "dimensions"},
+		{"H.OVER", "handed_over"},
+		{"BOE#", "boe_number"},
+		{"Получатель", "receiver_name"},
+		{"Тел.", "receiver_phone"},
+		{"Final AWB", "final_awb"},
+		{"XBD AWB", "xbd_awb"},
+		{"SVO AWB", "svo_awb"},
+		{"Сумма", "total_amount"},
+		{"Доп. сумма", "add_amount"},
+		{"Валюта", "currency"},
+		{"Статус инвойса", "invoice_status"},
+		{"Оплата", "payment_timing"},
+		{"Клиент", "client_id"},
+		{"Ответственный", "assigned_to_id"},
+	}
+	for _, pair := range fieldRenames {
+		db.Exec(`UPDATE order_logs SET field = $1 WHERE field = $2`, pair[1], pair[0])
+	}
+	// Migrate handed_over values from Russian to English
+	db.Exec(`UPDATE order_logs SET old_value = 'yes' WHERE field = 'handed_over' AND old_value = 'Да'`)
+	db.Exec(`UPDATE order_logs SET old_value = 'no'  WHERE field = 'handed_over' AND old_value = 'Нет'`)
+	db.Exec(`UPDATE order_logs SET new_value = 'yes' WHERE field = 'handed_over' AND new_value = 'Да'`)
+	db.Exec(`UPDATE order_logs SET new_value = 'no'  WHERE field = 'handed_over' AND new_value = 'Нет'`)
 
 	// Убираем NOT NULL с полей которые стали необязательными
 	db.Exec(`ALTER TABLE orders ALTER COLUMN origin_country DROP NOT NULL`)

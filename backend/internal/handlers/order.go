@@ -65,6 +65,7 @@ func (h *OrderHandler) Get(c *gin.Context) {
 		Preload("Payments.User").
 		Preload("History.User").
 		Preload("AssignedTo").
+		Preload("HandedOverBy").
 		Preload("CreatedBy").
 		Preload("AWB").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB {
@@ -235,9 +236,9 @@ func (h *OrderHandler) logChanges(orderID, userID uint, old, new *models.Order) 
 	fi := func(i int) string { return fmt.Sprintf("%d", i) }
 	fb := func(b bool) string {
 		if b {
-			return "Да"
+			return "yes"
 		}
-		return "Нет"
+		return "no"
 	}
 	fp := func(p *uint) uint {
 		if p == nil {
@@ -248,43 +249,44 @@ func (h *OrderHandler) logChanges(orderID, userID uint, old, new *models.Order) 
 
 	type fd struct{ name, o, n string }
 	fields := []fd{
-		{"Статус", string(old.Status), string(new.Status)},
-		{"Job Status", old.JobStatus, new.JobStatus},
-		{"Приоритет", old.Priority, new.Priority},
-		{"Тип работы", old.JobType, new.JobType},
-		{"Тип рейса", old.FlightType, new.FlightType},
-		{"OUR REF", old.OurRef, new.OurRef},
-		{"Поставщик", old.Supplier, new.Supplier},
-		{"Откуда", old.OriginCity, new.OriginCity},
-		{"Куда", old.DestCity, new.DestCity},
-		{"NTR", old.NTR, new.NTR},
-		{"Мест", fi(old.Pieces), fi(new.Pieces)},
-		{"Вес кг", ff(old.WeightKG), ff(new.WeightKG)},
-		{"CWT", ff(old.ChargeableWeight), ff(new.ChargeableWeight)},
-		{"Размеры", old.Dimensions, new.Dimensions},
-		{"H.OVER", fb(old.HandedOver), fb(new.HandedOver)},
-		{"BOE#", old.BOENumber, new.BOENumber},
-		{"Получатель", old.ReceiverName, new.ReceiverName},
-		{"Тел.", old.ReceiverPhone, new.ReceiverPhone},
-		{"Final AWB", old.FinalAWB, new.FinalAWB},
-		{"XBD AWB", old.XBDAWB, new.XBDAWB},
-		{"SVO AWB", old.SVOAWB, new.SVOAWB},
-		{"Сумма", ff(old.TotalAmount), ff(new.TotalAmount)},
-		{"Доп. сумма", ff(old.AddAmount), ff(new.AddAmount)},
-		{"Валюта", string(old.Currency), string(new.Currency)},
-		{"Статус инвойса", old.InvoiceStatus, new.InvoiceStatus},
-		{"Оплата", old.PaymentTiming, new.PaymentTiming},
+		{"status", string(old.Status), string(new.Status)},
+		{"job_status", old.JobStatus, new.JobStatus},
+		{"priority", old.Priority, new.Priority},
+		{"job_type", old.JobType, new.JobType},
+		{"flight_type", old.FlightType, new.FlightType},
+		{"our_ref", old.OurRef, new.OurRef},
+		{"supplier", old.Supplier, new.Supplier},
+		{"origin_city", old.OriginCity, new.OriginCity},
+		{"transit_city", old.TransitCity, new.TransitCity},
+		{"dest_city", old.DestCity, new.DestCity},
+		{"ntr", old.NTR, new.NTR},
+		{"pieces", fi(old.Pieces), fi(new.Pieces)},
+		{"weight_kg", ff(old.WeightKG), ff(new.WeightKG)},
+		{"chargeable_weight", ff(old.ChargeableWeight), ff(new.ChargeableWeight)},
+		{"dimensions", old.Dimensions, new.Dimensions},
+		{"handed_over", fb(old.HandedOver), fb(new.HandedOver)},
+		{"boe_number", old.BOENumber, new.BOENumber},
+		{"receiver_name", old.ReceiverName, new.ReceiverName},
+		{"receiver_phone", old.ReceiverPhone, new.ReceiverPhone},
+		{"final_awb", old.FinalAWB, new.FinalAWB},
+		{"xbd_awb", old.XBDAWB, new.XBDAWB},
+		{"svo_awb", old.SVOAWB, new.SVOAWB},
+		{"total_amount", ff(old.TotalAmount), ff(new.TotalAmount)},
+		{"add_amount", ff(old.AddAmount), ff(new.AddAmount)},
+		{"currency", string(old.Currency), string(new.Currency)},
+		{"invoice_status", old.InvoiceStatus, new.InvoiceStatus},
+		{"payment_timing", old.PaymentTiming, new.PaymentTiming},
 	}
 
-	// FK-поля — резолвим имена
+	// FK fields — resolve to names
 	if old.ClientID != new.ClientID {
-		fields = append(fields, fd{"Клиент",
+		fields = append(fields, fd{"client_id",
 			h.resolveClientName(old.ClientID),
 			h.resolveClientName(new.ClientID),
 		})
 	}
 	if fp(old.AssignedToID) != fp(new.AssignedToID) {
-		fields = append(fields, fd{"Ответственный",
+		fields = append(fields, fd{"assigned_to_id",
 			h.resolveUserName(old.AssignedToID),
 			h.resolveUserName(new.AssignedToID),
 		})
@@ -417,7 +419,7 @@ func (h *OrderHandler) UpdateStatus(c *gin.Context) {
 		OrderID:  order.ID,
 		UserID:   userID,
 		Action:   "updated",
-		Field:    "Статус",
+		Field:    "status",
 		OldValue: string(oldStatus),
 		NewValue: string(req.Status),
 	})
@@ -443,7 +445,7 @@ func (h *OrderHandler) Delete(c *gin.Context) {
 		OrderID:  order.ID,
 		UserID:   userID,
 		Action:   "updated",
-		Field:    "Статус",
+		Field:    "status",
 		OldValue: string(order.Status),
 		NewValue: string(models.StatusDeleted),
 	})

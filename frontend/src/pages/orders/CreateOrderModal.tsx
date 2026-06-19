@@ -1,6 +1,6 @@
 import { useRef, useState, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, X } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2, AlertCircle, ExternalLink, X, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import Modal from '../../components/ui/Modal'
 import { ordersApi } from '../../api/orders'
@@ -9,14 +9,12 @@ import { usersApi } from '../../api/users'
 import { filesApi } from '../../api/files'
 import { catalogsApi } from '../../api/catalogs'
 import { extractAWBFromFile, isPDFFile } from '../../lib/awbOcr'
-import type { AWBData, Currency, JobType, NTR, User } from '../../types'
+import type { AWBData, Currency, NTR, User } from '../../types'
 
 interface Props {
   open: boolean
   onClose: () => void
 }
-
-// ── Справочники ────────────────────────────────────────────────────────────
 
 const PRIORITY_OPTIONS = [
   { value: 'ROUTINE',  label: 'ROUTINE',  color: 'border-gray-300 bg-white text-gray-600' },
@@ -32,6 +30,20 @@ const serializeDims = (dims: DimRow[]) =>
 
 const INVOICE_STATUSES = ['', 'Inv Sent', 'Pending', 'Paid', 'Cancelled']
 const CURRENCIES: Currency[] = ['USD', 'AED', 'TJS', 'RUB']
+
+const DEFAULT_DOC_CATEGORIES = [
+  { value: 'invoice',      label: 'Invoice' },
+  { value: 'packing_list', label: 'Packing List' },
+  { value: 'boe',          label: 'BOE' },
+]
+
+const DEFAULT_JOB_TYPES = [
+  { value: 'T-IN',  label: 'T-IN' },
+  { value: 'L-EXP', label: 'L-EXP' },
+  { value: 'T-OUT', label: 'T-OUT' },
+  { value: 'T-EXP', label: 'T-EXP' },
+  { value: 'GEN',   label: 'GEN' },
+]
 
 const emptyAWB = (): AWBData => ({
   awb_number: '', shipper_name: '', shipper_address: '', shipper_account_no: '',
@@ -52,25 +64,33 @@ const emptyAWB = (): AWBData => ({
   execution_date: '', execution_time: '', execution_place: '', signer_name: '',
 })
 
-type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'assigned'
+type Tab = 'main' | 'cargo' | 'awb' | 'finance' | 'documents' | 'assigned'
+
+type LocalDoc = {
+  localId: string
+  category: string
+  file_key: string
+  file_url: string
+  file_name: string
+  state: 'uploading' | 'done' | 'error'
+}
 
 export default function CreateOrderModal({ open, onClose }: Props) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fileInput2Ref = useRef<HTMLInputElement>(null)
-  const docRefInvoice = useRef<HTMLInputElement>(null)
-  const docRefPackingList = useRef<HTMLInputElement>(null)
-  const docRefBoe = useRef<HTMLInputElement>(null)
+  const docFileRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<Tab>('main')
   const [error, setError] = useState('')
 
-  // ── Tab 1: Основное ────────────────────────────────────────────────────────
+  // ── Tab 1: Main ────────────────────────────────────────────────────────────
+  const [suppliers, setSuppliers] = useState<string[]>([])
+  const [supplierInput, setSupplierInput] = useState('')
+  const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>(['T-IN'])
   const [main, setMain] = useState({
     our_ref: '',
-    supplier: '',
     client_id: '',
-    job_type: 'T-IN' as JobType,
     flight_type: '',
     status: 'new',
     job_status: 'OPEN',
@@ -79,9 +99,10 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     priority: 'ROUTINE',
   })
 
-  // ── Tab 2: Груз ────────────────────────────────────────────────────────────
+  // ── Tab 2: Cargo ───────────────────────────────────────────────────────────
   const [cargo, setCargo] = useState({
     origin_city: '',
+    transit_city: '',
     dest_city: '',
     ntr: 'GEN' as NTR,
     pieces: '1',
@@ -99,11 +120,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
   const [dims, setDims] = useState<DimRow[]>([{ l: '', w: '', h: '' }])
 
   // ── Tab 3: AWB ─────────────────────────────────────────────────────────────
-  const [docs, setDocs] = useState({
-    final_awb: '',
-    xbd_awb: '',
-    svo_awb: '',
-  })
+  const [docs, setDocs] = useState({ final_awb: '', xbd_awb: '', svo_awb: '' })
   const [awb, setAWB] = useState<AWBData>(emptyAWB())
   const [awbFileURL, setAWBFileURL] = useState('')
   const [awbFileKey, setAWBFileKey] = useState('')
@@ -121,11 +138,11 @@ export default function CreateOrderModal({ open, onClose }: Props) {
   const [awb2IsPDF, setAWB2IsPDF] = useState(false)
   const [upload2State, setUpload2State] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
 
-  type LocalDocCat = 'invoice' | 'packing_list' | 'boe'
-  type LocalDoc = { localId: string; category: LocalDocCat; file_key: string; file_url: string; file_name: string; state: 'uploading' | 'done' | 'error' }
+  // ── Tab 5: Documents ───────────────────────────────────────────────────────
   const [localDocs, setLocalDocs] = useState<LocalDoc[]>([])
+  const [docCategory, setDocCategory] = useState('')
 
-  // ── Tab 4: Финансы ─────────────────────────────────────────────────────────
+  // ── Tab 4: Finance ─────────────────────────────────────────────────────────
   const [fin, setFin] = useState({
     total_amount: '',
     add_amount: '',
@@ -137,7 +154,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     cx_notified: false,
   })
 
-  // ── Данные ────────────────────────────────────────────────────────────────
+  // ── Data ──────────────────────────────────────────────────────────────────
   const { data: jobTypes = [] } = useQuery({
     queryKey: ['catalogs', 'job_type'],
     queryFn: () => catalogsApi.list('job_type', true).then(r => r.data),
@@ -153,7 +170,18 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     queryFn: () => catalogsApi.list('ntr', true).then(r => r.data),
   })
 
-  // ── Авто-расчёт груза ─────────────────────────────────────────────────────
+  const { data: docCatalog = [] } = useQuery({
+    queryKey: ['catalogs', 'doc_category'],
+    queryFn: () => catalogsApi.list('doc_category', true).then(r => r.data),
+  })
+
+  const docCategories = docCatalog.length > 0
+    ? docCatalog.map(c => ({ value: c.value, label: c.label }))
+    : DEFAULT_DOC_CATEGORIES
+
+  const effectiveJobTypes = jobTypes.length > 0 ? jobTypes : DEFAULT_JOB_TYPES
+
+  // ── Cargo auto-calc ───────────────────────────────────────────────────────
   const volumetricCWT = useMemo(() => {
     const total = dims.reduce((sum, d) =>
       sum + (parseFloat(d.l) || 0) * (parseFloat(d.w) || 0) * (parseFloat(d.h) || 0), 0)
@@ -201,7 +229,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     enabled: open,
   })
 
-  // ── Мутации ────────────────────────────────────────────────────────────────
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const mutation = useMutation({
     mutationFn: (data: object) => ordersApi.create(data),
     onSuccess: () => {
@@ -217,7 +245,22 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     mutationFn: (file: File) => filesApi.uploadAWB(file),
   })
 
-  // ── Обработка файла AWB ────────────────────────────────────────────────────
+  // ── Supplier tag input ────────────────────────────────────────────────────
+  const addSupplier = () => {
+    const v = supplierInput.trim()
+    if (v && !suppliers.includes(v)) setSuppliers(p => [...p, v])
+    setSupplierInput('')
+  }
+  const removeSupplier = (s: string) => setSuppliers(p => p.filter(x => x !== s))
+
+  // ── Job type toggle ────────────────────────────────────────────────────────
+  const toggleJobType = (jt: string) => {
+    setSelectedJobTypes(prev =>
+      prev.includes(jt) ? prev.filter(x => x !== jt) : [...prev, jt]
+    )
+  }
+
+  // ── AWB file handling ─────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -239,7 +282,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
       setAWBFileURL(uploadRes.data.file_url)
       if (Object.keys(extracted).length > 0) {
         setAWB(prev => ({ ...prev, ...extracted }))
-        // Авто-заполнение полей из AWB
         if (extracted.airport_of_departure)
           setCargo(p => ({ ...p, origin_city: extracted.airport_of_departure! }))
         if (extracted.airport_of_destination)
@@ -276,29 +318,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     }
   }
 
-  const handleDocFileChange = async (category: LocalDocCat, e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    const newDocs: LocalDoc[] = files.map(f => ({
-      localId: `${Date.now()}-${Math.random()}`,
-      category, file_key: '', file_url: '', file_name: f.name, state: 'uploading',
-    }))
-    setLocalDocs(prev => [...prev, ...newDocs])
-    await Promise.all(files.map(async (file, i) => {
-      const { localId } = newDocs[i]
-      try {
-        const res = await uploadMutation.mutateAsync(file)
-        setLocalDocs(prev => prev.map(d => d.localId === localId
-          ? { ...d, file_key: res.data.file_key, file_url: res.data.file_url, state: 'done' } : d))
-      } catch {
-        setLocalDocs(prev => prev.map(d => d.localId === localId ? { ...d, state: 'error' } : d))
-      }
-    }))
-    e.target.value = ''
-  }
-
-  const removeLocalDoc = (localId: string) => setLocalDocs(prev => prev.filter(d => d.localId !== localId))
-
   const handleFile2Change = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -317,7 +336,32 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     }
   }
 
-  // ── Авто-расчёт AED ───────────────────────────────────────────────────────
+  // ── Document upload ───────────────────────────────────────────────────────
+  const handleDocFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    const cat = docCategory || docCategories[0]?.value || 'other'
+    const newDocs: LocalDoc[] = files.map(f => ({
+      localId: `${Date.now()}-${Math.random()}`,
+      category: cat, file_key: '', file_url: '', file_name: f.name, state: 'uploading',
+    }))
+    setLocalDocs(prev => [...prev, ...newDocs])
+    await Promise.all(files.map(async (file, i) => {
+      const { localId } = newDocs[i]
+      try {
+        const res = await uploadMutation.mutateAsync(file)
+        setLocalDocs(prev => prev.map(d => d.localId === localId
+          ? { ...d, file_key: res.data.file_key, file_url: res.data.file_url, state: 'done' } : d))
+      } catch {
+        setLocalDocs(prev => prev.map(d => d.localId === localId ? { ...d, state: 'error' } : d))
+      }
+    }))
+    e.target.value = ''
+  }
+
+  const removeLocalDoc = (localId: string) => setLocalDocs(prev => prev.filter(d => d.localId !== localId))
+
+  // ── Finance auto-calc ─────────────────────────────────────────────────────
   const handleInvUSDChange = (val: string) => {
     const usd = parseFloat(val) || 0
     const rate = parseFloat(fin.exchange_rate) || 3.67
@@ -338,12 +382,14 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     }))
   }
 
-  // ── Сброс ─────────────────────────────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────────────────────
   const resetForm = () => {
-    setMain({ our_ref: '', supplier: '', client_id: '', job_type: 'T-IN',
-      flight_type: '', status: 'new', job_status: 'OPEN', assigned_to_id: '',
-      payment_timing: 'on_dispatch', priority: 'ROUTINE' })
-    setCargo({ origin_city: '', dest_city: '', ntr: 'GEN', pieces: '1',
+    setSuppliers([])
+    setSupplierInput('')
+    setSelectedJobTypes(['T-IN'])
+    setMain({ our_ref: '', client_id: '', flight_type: '', status: 'new', job_status: 'OPEN',
+      assigned_to_id: '', payment_timing: 'on_dispatch', priority: 'ROUTINE' })
+    setCargo({ origin_city: '', transit_city: '', dest_city: '', ntr: 'GEN', pieces: '1',
       weight_kg: '', chargeable_weight: '', handed_over: false,
       boe_number: '', shipper_2: '', consignee_2: '', receiver_name: '',
       receiver_phone: '', notes: '', instr: '' })
@@ -355,32 +401,31 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     setOcrState('idle'); setOcrProgress(0)
     setAWB2FileURL(''); setAWB2FileKey(''); setAWB2FileName('')
     setAWB2PreviewURL(''); setAWB2IsPDF(false); setUpload2State('idle')
-    setLocalDocs([])
+    setLocalDocs([]); setDocCategory('')
     setFin({ total_amount: '', add_amount: '', currency: 'USD', exchange_rate: '3.67',
       inv_amount_usd: '', inv_amount_aed: '', invoice_status: '', cx_notified: false })
     setError(''); setTab('main')
   }
 
-  // ── Сабмит ────────────────────────────────────────────────────────────────
+  // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!main.client_id) { setError(t('orders.create.errorSelectClient')); return }
     setError('')
     mutation.mutate({
-      // Tab 1
       our_ref:        main.our_ref,
-      supplier:       main.supplier,
+      supplier:       suppliers.join(','),
       client_id:      Number(main.client_id),
-      job_type:       main.job_type,
+      job_type:       selectedJobTypes.join(','),
       flight_type:    main.flight_type,
       status:         main.status,
       job_status:     main.job_status,
       assigned_to_id: main.assigned_to_id ? Number(main.assigned_to_id) : null,
       payment_timing: main.payment_timing,
       priority:       main.priority,
-      // Tab 2
       origin_country: '',
       origin_city:    cargo.origin_city,
+      transit_city:   cargo.transit_city,
       dest_country:   '',
       dest_city:      cargo.dest_city,
       ntr:            cargo.ntr,
@@ -399,14 +444,12 @@ export default function CreateOrderModal({ open, onClose }: Props) {
       receiver_phone: cargo.receiver_phone,
       notes:          cargo.notes,
       instr:          cargo.instr,
-      // Tab 3
       final_awb: docs.final_awb,
       xbd_awb:   docs.xbd_awb,
       svo_awb:   docs.svo_awb,
       awb: awbFileKey ? { ...awb, file_key: awbFileKey, file_url: awbFileURL } : undefined,
       awb2_file_key: awb2FileKey || undefined,
       awb2_file_url: awb2FileURL || undefined,
-      // Tab 4
       total_amount:   Number(fin.total_amount) || 0,
       add_amount:     Number(fin.add_amount) || 0,
       currency:       fin.currency,
@@ -418,39 +461,45 @@ export default function CreateOrderModal({ open, onClose }: Props) {
     })
   }
 
-  // ── Стили ─────────────────────────────────────────────────────────────────
+  // ── Styles ────────────────────────────────────────────────────────────────
   const inp = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
   const lbl = 'block text-xs font-medium text-gray-600 mb-1'
   const sec = 'text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3'
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: 'main',     label: t('orders.create.tabMain') },
-    { key: 'cargo',    label: t('orders.create.tabCargo') },
-    { key: 'awb',      label: t('orders.create.tabAwb') },
-    { key: 'finance',  label: t('orders.create.tabFinance') },
-    { key: 'assigned', label: t('orders.create.tabAssigned') },
+    { key: 'main',      label: t('orders.create.tabMain') },
+    { key: 'cargo',     label: t('orders.create.tabCargo') },
+    { key: 'awb',       label: t('orders.create.tabAwb') },
+    { key: 'finance',   label: t('orders.create.tabFinance') },
+    { key: 'documents', label: 'Documents' },
+    { key: 'assigned',  label: t('orders.create.tabAssigned') },
   ]
 
   return (
     <Modal open={open} onClose={onClose} title={t('orders.create.title')} size="xl">
       {/* Tabs */}
       <div className="flex border-b border-gray-200 mb-5 -mx-6 px-6 overflow-x-auto">
-        {TABS.map(t => (
+        {TABS.map(tb => (
           <button
-            key={t.key}
+            key={tb.key}
             type="button"
-            onClick={() => setTab(t.key)}
+            onClick={() => setTab(tb.key)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition ${
-              tab === t.key
+              tab === tb.key
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t.label}
-            {t.key === 'awb' && (awbFileKey || awb2FileKey) && (
+            {tb.label}
+            {tb.key === 'awb' && (awbFileKey || awb2FileKey) && (
               <span className="ml-1.5 w-2 h-2 rounded-full bg-green-500 inline-block" />
             )}
-            {t.key === 'assigned' && main.assigned_to_id && (
+            {tb.key === 'documents' && localDocs.filter(d => d.state === 'done').length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+                {localDocs.filter(d => d.state === 'done').length}
+              </span>
+            )}
+            {tb.key === 'assigned' && main.assigned_to_id && (
               <span className="ml-1.5 w-2 h-2 rounded-full bg-blue-500 inline-block" />
             )}
           </button>
@@ -460,8 +509,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
       <form onSubmit={handleSubmit}>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            TAB 1 — ОСНОВНОЕ
-            REF# | OUR REF | SUPPLIER | CUSTOMER | JOB TYPE | ASSIGNED | STATUS
+            TAB 1 — MAIN
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={tab === 'main' ? 'space-y-4' : 'hidden'}>
 
@@ -470,23 +518,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               <label className={lbl}>OUR REF</label>
               <input value={main.our_ref} onChange={e => setMain(p => ({...p, our_ref: e.target.value}))}
                 className={inp} placeholder={t('orders.create.ourRefPlaceholder')} />
-            </div>
-            <div>
-              <label className={lbl}>JOB TYPE</label>
-              <select value={main.job_type}
-                onChange={e => setMain(p => ({...p, job_type: e.target.value as JobType}))}
-                className={inp}>
-                {jobTypes.map(j => <option key={j.value} value={j.value}>{j.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={lbl}>SUPPLIER</label>
-              <input value={main.supplier}
-                onChange={e => setMain(p => ({...p, supplier: e.target.value}))}
-                className={inp} placeholder="AIRBORNE, AVNUR TRADING..." />
             </div>
             <div>
               <label className={lbl}>CUSTOMER *</label>
@@ -498,6 +529,58 @@ export default function CreateOrderModal({ open, onClose }: Props) {
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* Multi-Supplier tag input */}
+          <div>
+            <label className={lbl}>{t('orders.create.suppliersLabel')}</label>
+            <div className="flex gap-2">
+              <input
+                value={supplierInput}
+                onChange={e => setSupplierInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSupplier() } }}
+                className={inp}
+                placeholder={t('orders.create.supplierPlaceholder')}
+              />
+              <button type="button" onClick={addSupplier}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition flex items-center gap-1">
+                <Plus size={14} />
+              </button>
+            </div>
+            {suppliers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {suppliers.map(s => (
+                  <span key={s} className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-full">
+                    {s}
+                    <button type="button" onClick={() => removeSupplier(s)}
+                      className="text-blue-400 hover:text-blue-700 transition">
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Multi-Job Type toggle */}
+          <div>
+            <label className={lbl}>{t('orders.create.jobTypesLabel')}</label>
+            <div className="flex flex-wrap gap-2">
+              {effectiveJobTypes.map(jt => (
+                <button
+                  key={jt.value}
+                  type="button"
+                  onClick={() => toggleJobType(jt.value)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                    selectedJobTypes.includes(jt.value)
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  {jt.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -584,18 +667,23 @@ export default function CreateOrderModal({ open, onClose }: Props) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            TAB 2 — ГРУЗ
-            ORG | DES | NTR | #PC | KG | CWT | DIMS | H.OVER | BOE# | SHIPPER 2 | CONSIGNEE 2
+            TAB 2 — CARGO
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={tab === 'cargo' ? 'space-y-4' : 'hidden'}>
 
-          {/* Маршрут */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Route: ORG → TRANSIT → DES */}
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.orgLabel')}</label>
               <input value={cargo.origin_city}
                 onChange={e => setCargo(p => ({...p, origin_city: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)}))}
                 className={`${inp} uppercase tracking-widest font-mono`} placeholder="DXB" maxLength={3} />
+            </div>
+            <div>
+              <label className={lbl}>TRANSIT</label>
+              <input value={cargo.transit_city}
+                onChange={e => setCargo(p => ({...p, transit_city: e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)}))}
+                className={`${inp} uppercase tracking-widest font-mono`} placeholder="DOH" maxLength={3} />
             </div>
             <div>
               <label className={lbl}>{t('orders.create.desLabel')}</label>
@@ -605,7 +693,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Характеристики груза */}
+          {/* Cargo props */}
           <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
             <p className={sec}>{t('orders.create.cargoProps')}</p>
             <div className="grid grid-cols-3 gap-3 mb-3">
@@ -631,7 +719,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               </div>
             </div>
 
-            {/* DIMS rows */}
             <div className="mb-3">
               <label className={lbl}>{t('orders.create.dimsCm')}</label>
               <div className="space-y-1.5">
@@ -662,7 +749,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               )}
             </div>
 
-            {/* CWT + CBM */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={lbl}>
@@ -683,7 +769,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               </div>
             </div>
 
-            {/* H.OVER */}
             <div className="mt-3">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={cargo.handed_over}
@@ -694,73 +779,13 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* BOE и документы */}
           <div>
             <label className={lbl}>BOE# (Bill of Entry)</label>
             <input value={cargo.boe_number}
               onChange={e => setCargo(p => ({...p, boe_number: e.target.value}))}
               className={inp} placeholder="20100313..." />
-
-            {/* Документы по категориям */}
-            {(() => {
-              const cats: { key: LocalDocCat; ref: React.RefObject<HTMLInputElement | null> }[] = [
-                { key: 'invoice',      ref: docRefInvoice },
-                { key: 'packing_list', ref: docRefPackingList },
-                { key: 'boe',          ref: docRefBoe },
-              ]
-              return (
-                <div className="mt-2 space-y-2">
-                  {cats.map(({ key, ref }) => {
-                    const catDocs = localDocs.filter(d => d.category === key)
-                    const catLabel = t(`orders.docCategories.${key}`)
-                    return (
-                      <div key={key} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
-                          <span className="text-xs font-semibold text-gray-600">{catLabel}</span>
-                          <input ref={ref} type="file" accept=".pdf,.jpg,.jpeg,.png"
-                            multiple onChange={e => handleDocFileChange(key, e)} className="hidden" />
-                          <button type="button" onClick={() => ref.current?.click()}
-                            className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                            <Upload size={11} /> {t('common.add')}
-                          </button>
-                        </div>
-                        {catDocs.length === 0 ? (
-                          <button type="button" onClick={() => ref.current?.click()}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition text-xs text-gray-400">
-                            <Upload size={12} className="shrink-0 text-gray-300" />
-                            {catLabel}...
-                          </button>
-                        ) : (
-                          <div className="divide-y divide-gray-50">
-                            {catDocs.map(doc => (
-                              <div key={doc.localId} className="flex items-center gap-2 px-3 py-2 text-xs">
-                                {doc.state === 'uploading' && <Loader2 size={12} className="text-blue-500 animate-spin shrink-0" />}
-                                {doc.state === 'done'      && <CheckCircle2 size={12} className="text-green-500 shrink-0" />}
-                                {doc.state === 'error'     && <AlertCircle size={12} className="text-red-500 shrink-0" />}
-                                <span className="flex-1 truncate text-gray-700">{doc.file_name}</span>
-                                {doc.state === 'done' && doc.file_url && (
-                                  <a href={doc.file_url} target="_blank" rel="noreferrer"
-                                    className="text-blue-600 hover:underline flex items-center gap-0.5 shrink-0">
-                                    <ExternalLink size={10} /> {t('common.open')}
-                                  </a>
-                                )}
-                                <button type="button" onClick={() => removeLocalDoc(doc.localId)}
-                                  className="text-gray-300 hover:text-red-500 transition shrink-0">
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
           </div>
 
-          {/* Получатель */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.receiver')}</label>
@@ -776,7 +801,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Shipper 2 / Consignee 2 */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.shipper2')}</label>
@@ -794,7 +818,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* INSTR и Note */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>INSTR</label>
@@ -812,12 +835,10 @@ export default function CreateOrderModal({ open, onClose }: Props) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            TAB 3 — AWB / ДОКУМЕНТЫ
-            FINAL AWB | XBD MILE AWB | MLE-SVO AWB | Загрузка AWB документа
+            TAB 3 — AWB
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={tab === 'awb' ? 'space-y-4' : 'hidden'}>
 
-          {/* AWB номера */}
           <div className="border border-gray-200 rounded-lg p-4">
             <p className={sec}>{t('orders.create.awbNumbers')}</p>
             <div className="grid grid-cols-1 gap-3">
@@ -842,10 +863,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Upload sections */}
           <div className="grid grid-cols-2 gap-4">
-
-            {/* Upload 1-LEG-AWB (with OCR) */}
             <div>
               <p className={sec}>{t('orders.create.upload1LegAwb')}</p>
               <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png"
@@ -919,7 +937,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
               )}
             </div>
 
-            {/* Upload 2-LEG-AWB (simple upload, no OCR) */}
             <div>
               <p className={sec}>{t('orders.create.upload2LegAwb')}</p>
               <input ref={fileInput2Ref} type="file" accept=".pdf,.jpg,.jpeg,.png"
@@ -973,10 +990,8 @@ export default function CreateOrderModal({ open, onClose }: Props) {
                 </div>
               )}
             </div>
-
           </div>
 
-          {/* IATA поля из AWB */}
           {(ocrState === 'done' || awbFileKey) && (
             <div className="border border-gray-200 rounded-lg p-4">
               <p className={sec}>{t('orders.create.awbDataIata')}</p>
@@ -1026,8 +1041,7 @@ export default function CreateOrderModal({ open, onClose }: Props) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            TAB 4 — ФИНАНСЫ
-            AMOUNT | ADD AMOUNT | INV USD | Rate | INV AED | Invoice Status | CX NOTIFIED
+            TAB 4 — FINANCE
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={tab === 'finance' ? 'space-y-4' : 'hidden'}>
 
@@ -1053,7 +1067,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Инвойс */}
           <div className="border border-blue-100 rounded-lg p-4 bg-blue-50/30">
             <p className={sec}>{t('orders.create.invoiceSection')}</p>
             <div className="grid grid-cols-3 gap-3">
@@ -1099,7 +1112,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             </div>
           </div>
 
-          {/* Итог */}
           {(fin.inv_amount_usd || fin.inv_amount_aed) && (
             <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 space-y-1">
               {fin.total_amount && (
@@ -1127,10 +1139,77 @@ export default function CreateOrderModal({ open, onClose }: Props) {
         </div>
 
         {/* ═══════════════════════════════════════════════════════════════════
-            TAB 5 — НАЗНАЧЕНО
+            TAB 5 — DOCUMENTS
+        ══════════════════════════════════════════════════════════════════════ */}
+        <div className={tab === 'documents' ? 'space-y-4' : 'hidden'}>
+
+          {/* Upload form */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+            <p className={sec}>Attach Document</p>
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className={lbl}>Category</label>
+                <select value={docCategory}
+                  onChange={e => setDocCategory(e.target.value)}
+                  className={inp}>
+                  {docCategories.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <input ref={docFileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                  multiple onChange={handleDocFileChange} className="hidden" />
+                <button type="button" onClick={() => {
+                    if (!docCategory && docCategories.length > 0) setDocCategory(docCategories[0].value)
+                    docFileRef.current?.click()
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition">
+                  <Upload size={14} /> Upload File(s)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Document list */}
+          {localDocs.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              No documents attached yet. Select a category and upload files above.
+            </div>
+          ) : (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="divide-y divide-gray-100">
+                {localDocs.map(doc => {
+                  const catLabel = docCategories.find(c => c.value === doc.category)?.label || doc.category
+                  return (
+                    <div key={doc.localId} className="flex items-center gap-3 px-4 py-2.5">
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded shrink-0">{catLabel}</span>
+                      {doc.state === 'uploading' && <Loader2 size={13} className="text-blue-500 animate-spin shrink-0" />}
+                      {doc.state === 'done'      && <CheckCircle2 size={13} className="text-green-500 shrink-0" />}
+                      {doc.state === 'error'     && <AlertCircle size={13} className="text-red-500 shrink-0" />}
+                      <span className="flex-1 text-sm text-gray-700 truncate">{doc.file_name}</span>
+                      {doc.state === 'done' && doc.file_url && (
+                        <a href={doc.file_url} target="_blank" rel="noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-0.5 shrink-0">
+                          <ExternalLink size={11} /> Open
+                        </a>
+                      )}
+                      <button type="button" onClick={() => removeLocalDoc(doc.localId)}
+                        className="text-gray-300 hover:text-red-500 transition shrink-0 ml-1">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════════════
+            TAB 6 — ASSIGNED
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={tab === 'assigned' ? 'space-y-3' : 'hidden'}>
-          {/* Не назначен */}
           <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
             !main.assigned_to_id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
           }`}>
@@ -1144,7 +1223,6 @@ export default function CreateOrderModal({ open, onClose }: Props) {
             <p className="text-sm font-medium text-gray-600">{t('orders.create.notAssigned')}</p>
           </label>
 
-          {/* Карточки пользователей */}
           {(users as User[]).filter(u => u.active).map(u => (
             <label key={u.id} className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition ${
               main.assigned_to_id === String(u.id)
@@ -1177,13 +1255,13 @@ export default function CreateOrderModal({ open, onClose }: Props) {
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
 
         <div className="flex justify-between items-center pt-4 mt-4 border-t border-gray-100">
-          <div className="flex gap-2 text-xs text-gray-400">
-            {TABS.map((t, i) => (
-              <button key={t.key} type="button" onClick={() => setTab(t.key)}
+          <div className="flex gap-2 text-xs text-gray-400 flex-wrap">
+            {TABS.map((tb, i) => (
+              <button key={tb.key} type="button" onClick={() => setTab(tb.key)}
                 className={`px-2 py-1 rounded transition ${
-                  tab === t.key ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-gray-100'
+                  tab === tb.key ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-gray-100'
                 }`}>
-                {i + 1}. {t.label}
+                {i + 1}. {tb.label}
               </button>
             ))}
           </div>

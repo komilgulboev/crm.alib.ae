@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Package, CreditCard,
   Settings, LogOut, Truck, Building2, BookOpen, Globe,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, FileText,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store/auth'
@@ -19,10 +19,11 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const { t, i18n } = useTranslation()
 
   const navItems = [
-    { to: '/',         icon: LayoutDashboard, label: t('nav.dashboard') },
-    { to: '/orders',   icon: Package,         label: t('nav.orders') },
-    { to: '/clients',  icon: Users,           label: t('nav.clients') },
-    { to: '/payments', icon: CreditCard,      label: t('nav.payments') },
+    { to: '/',              icon: LayoutDashboard, label: t('nav.dashboard') },
+    { to: '/orders',        icon: Package,         label: t('nav.orders') },
+    { to: '/clients',       icon: Users,           label: t('nav.clients') },
+    { to: '/payments',      icon: CreditCard,      label: t('nav.payments') },
+    { to: '/instructions',  icon: FileText,        label: 'Instructions' },
   ]
 
   const adminItems = [

@@ -108,7 +108,7 @@ func (h *TelegramHandler) handleCallback(cb *telegram.CallbackQuery) {
 		OrderID:  order.ID,
 		UserID:   logUserID,
 		Action:   "updated",
-		Field:    "Статус",
+		Field:    "status",
 		OldValue: string(oldStatus),
 		NewValue: string(sa.status),
 	})

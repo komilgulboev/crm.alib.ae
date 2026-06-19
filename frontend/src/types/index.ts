@@ -167,6 +167,25 @@ export interface Payment {
   created_at: string
 }
 
+export interface TransitEmailConfig {
+  id: number
+  transit_code: string
+  emails: string
+  description: string
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface OrderInstruction {
+  order: Order
+  to: string[]
+  subject: string
+  body: string
+  documents: { url: string; name: string; category: string }[]
+  smtp_ready: boolean
+}
+
 export interface Order {
   id: number
   tracking_number: string   // REF#
@@ -176,15 +195,16 @@ export interface Order {
   payment_timing: 'on_dispatch' | 'on_receipt'
 
   // Тип и маршрут
-  job_type: JobType         // T-IN | L-EXP | T-OUT | T-EXP
+  job_type: JobType         // T-IN | L-EXP | T-OUT | T-EXP (comma-separated for multi)
   flight_type: 'charter' | 'regular' | ''
   origin_country: string
   origin_city: string       // ORG
+  transit_city: string      // TRANSIT
   dest_country: string
   dest_city: string         // DES
 
   // Стороны
-  supplier: string          // SUPPLIER
+  supplier: string          // SUPPLIER (comma-separated for multi)
   client_id: number
   client: Client            // CUSTOMER
   receiver_name: string
@@ -192,6 +212,8 @@ export interface Order {
 
   assigned_to_id: number | null
   assigned_to: User | null
+  handed_over_by_id: number | null
+  handed_over_by: User | null
   created_by_id: number
   created_by: User
 
@@ -211,6 +233,8 @@ export interface Order {
   final_awb: string
   xbd_awb: string
   svo_awb: string
+  awb2_file_key?: string
+  awb2_file_url?: string
   boe_number: string        // BOE#
   boe_file_1_key?: string
   boe_file_1_url?: string
@@ -248,7 +272,7 @@ export interface Order {
   updated_at: string
 }
 
-export type DocCategory = 'invoice' | 'packing_list' | 'boe'
+export type DocCategory = string
 
 export interface OrderDocument {
   id: number

@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Search, Phone } from 'lucide-react'
+import { Plus, Search, Phone, Pencil } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import api from '../../api/client'
 import type { Client } from '../../types'
 import { formatCurrency } from '../../lib/utils'
 import CreateClientModal from './CreateClientModal'
+import EditClientModal from './EditClientModal'
 
 export default function ClientsPage() {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [editClient, setEditClient] = useState<Client | null>(null)
 
   const { data: clients = [], isLoading } = useQuery({
     queryKey: ['clients', search],
@@ -21,6 +23,7 @@ export default function ClientsPage() {
   return (
     <div>
       <CreateClientModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <EditClientModal client={editClient} onClose={() => setEditClient(null)} />
 
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">{t('clients.title')}</h1>
@@ -57,11 +60,12 @@ export default function ClientsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colCountry')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colBalance')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">{t('clients.colStatus')}</th>
+                <th className="px-4 py-3 w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {clients.map((client: Client) => (
-                <tr key={client.id} className="hover:bg-gray-50 transition cursor-pointer">
+                <tr key={client.id} className="hover:bg-gray-50 transition">
                   <td className="px-4 py-3">
                     <div className="font-medium text-gray-900">{client.name}</div>
                     {client.email && <div className="text-gray-400 text-xs">{client.email}</div>}
@@ -84,6 +88,15 @@ export default function ClientsPage() {
                     }`}>
                       {client.active ? t('clients.active') : t('clients.inactive')}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => setEditClient(client)}
+                      className="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                      title="Редактировать"
+                    >
+                      <Pencil size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
