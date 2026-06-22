@@ -46,6 +46,7 @@ func main() {
 		&models.OrderNote{},
 		&models.OrderDocument{},
 		&models.TransitEmailConfig{},
+		&models.OrderSupplier{},
 	); err != nil {
 		log.Fatalf("failed to migrate: %v", err)
 	}
@@ -115,9 +116,9 @@ func main() {
 	db.Model(&models.CatalogEntry{}).Where("type = ?", "shipper").Count(&shipperCount)
 	if shipperCount == 0 {
 		seeds := []models.CatalogEntry{
-			{Type: "shipper", Value: "AIRBORNE TOO",    Label: "AIRBORNE TOO",    SortOrder: 1, Active: true},
-			{Type: "shipper", Value: "TURBINAR TOO",    Label: "TURBINAR TOO",    SortOrder: 2, Active: true},
-			{Type: "shipper", Value: "ATB MACHINERY LOCAL", Label: "ATB MACHINERY LOCAL", SortOrder: 3, Active: true},
+			{Type: "shipper", Value: "AIRBORNE",       Label: "AIRBORNE",       LinkedValue: "T-OUT", SortOrder: 1, Active: true},
+			{Type: "shipper", Value: "TURBINAR",       Label: "TURBINAR",       LinkedValue: "T-OUT", SortOrder: 2, Active: true},
+			{Type: "shipper", Value: "ATB MACHINERY",  Label: "ATB MACHINERY",  LinkedValue: "L-EXP", SortOrder: 3, Active: true},
 		}
 		db.Create(&seeds)
 	}

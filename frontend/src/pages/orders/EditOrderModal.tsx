@@ -95,9 +95,9 @@ export default function EditOrderModal({ order, onClose }: Props) {
   const [error, setError] = useState('')
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [suppliers, setSuppliers] = useState<string[]>([])
-  const [supplierInput, setSupplierInput] = useState('')
-  const [selectedJobTypes, setSelectedJobTypes] = useState<string[]>(['T-IN'])
+  const [supplierRows, setSupplierRows] = useState<{ supplier: string; job_type: string }[]>([{ supplier: '', job_type: 'T-IN' }])
+  const [shippers, setShippers] = useState<string[]>([])
+  const [shipperSelectValue, setShipperSelectValue] = useState('')
   const [main, setMain] = useState({
     our_ref: '', client_id: '', flight_type: '', status: 'new',
     job_status: 'OPEN', assigned_to_id: '', payment_timing: 'on_dispatch', priority: 'ROUTINE',
@@ -106,7 +106,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
     origin_city: '', transit_city: '', dest_city: '', ntr: 'GEN' as NTR, pieces: '1',
     weight_kg: '', chargeable_weight: '', handed_over: false,
     handed_over_by_id: '',
-    boe_number: '', shipper_2: '', consignee_2: '', receiver_name: '',
+    boe_number: '', consignee_2: '', receiver_name: '',
     receiver_phone: '', notes: '', instr: '',
   })
   const [dims, setDims] = useState<DimRow[]>([{ l: '', w: '', h: '' }])
@@ -139,9 +139,16 @@ export default function EditOrderModal({ order, onClose }: Props) {
     if (!order) return
     setTab('main')
     setError('')
-    setSuppliers(order.supplier ? order.supplier.split(',').map(s => s.trim()).filter(Boolean) : [])
-    setSupplierInput('')
-    setSelectedJobTypes(order.job_type ? order.job_type.split(',').map(s => s.trim()).filter(Boolean) : ['T-IN'])
+    // Запасной вариант из плоских строк — пока не подтянулся fullOrder.suppliers
+    const legacySuppliers = order.supplier ? order.supplier.split(',').map(s => s.trim()).filter(Boolean) : []
+    const legacyJobTypes = order.job_type ? order.job_type.split(',').map(s => s.trim()).filter(Boolean) : []
+    setSupplierRows(
+      legacySuppliers.length > 0
+        ? legacySuppliers.map((s, i) => ({ supplier: s, job_type: legacyJobTypes[i] || legacyJobTypes[0] || 'T-IN' }))
+        : [{ supplier: '', job_type: 'T-IN' }]
+    )
+    setShippers(order.shipper_2 ? order.shipper_2.split(',').map(s => s.trim()).filter(Boolean) : [])
+    setShipperSelectValue('')
     setMain({
       our_ref:        order.our_ref || '',
       client_id:      String(order.client_id || ''),
@@ -164,7 +171,6 @@ export default function EditOrderModal({ order, onClose }: Props) {
       handed_over:        order.handed_over || false,
       handed_over_by_id:  order.handed_over_by_id ? String(order.handed_over_by_id) : '',
       boe_number:         order.boe_number || '',
-      shipper_2:          order.shipper_2 || '',
       consignee_2:        order.consignee_2 || '',
       receiver_name:      order.receiver_name || '',
       receiver_phone:     order.receiver_phone || '',
@@ -218,6 +224,9 @@ export default function EditOrderModal({ order, onClose }: Props) {
 
   useEffect(() => {
     if (!fullOrder) return
+    if (fullOrder.suppliers && fullOrder.suppliers.length > 0) {
+      setSupplierRows(fullOrder.suppliers.map(s => ({ supplier: s.supplier, job_type: s.job_type })))
+    }
     setLocalDocs((fullOrder.documents || []).map(d => ({
       localId: String(d.id),
       category: d.category,
@@ -338,20 +347,19 @@ export default function EditOrderModal({ order, onClose }: Props) {
     })
   }
 
-  // ── Supplier tag input ─────────────────────────────────────────────────────
-  const addSupplier = () => {
-    const v = supplierInput.trim()
-    if (v && !suppliers.includes(v)) setSuppliers(p => [...p, v])
-    setSupplierInput('')
-  }
-  const removeSupplier = (s: string) => setSuppliers(p => p.filter(x => x !== s))
+  // ── Supplier + Job Type rows ───────────────────────────────────────────────
+  const addSupplierRow = () => setSupplierRows(p => [...p, { supplier: '', job_type: effectiveJobTypes[0]?.value || '' }])
+  const removeSupplierRow = (i: number) => setSupplierRows(p => p.length > 1 ? p.filter((_, idx) => idx !== i) : p)
+  const updateSupplierRow = (i: number, field: 'supplier' | 'job_type', value: string) =>
+    setSupplierRows(p => p.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
 
-  // ── Job type toggle ────────────────────────────────────────────────────────
-  const toggleJobType = (jt: string) => {
-    setSelectedJobTypes(prev =>
-      prev.includes(jt) ? prev.filter(x => x !== jt) : [...prev, jt]
-    )
+  // ── Shipper multi-select ───────────────────────────────────────────────────
+  const addShipper = () => {
+    const v = shipperSelectValue.trim()
+    if (v && !shippers.includes(v)) setShippers(p => [...p, v])
+    setShipperSelectValue('')
   }
+  const removeShipper = (s: string) => setShippers(p => p.filter(x => x !== s))
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const updateMutation = useMutation({
@@ -463,9 +471,10 @@ export default function EditOrderModal({ order, onClose }: Props) {
     setError('')
     updateMutation.mutate({
       our_ref:        main.our_ref,
-      supplier:       suppliers.join(','),
       client_id:      Number(main.client_id),
-      job_type:       selectedJobTypes.join(','),
+      suppliers: supplierRows
+        .filter(r => r.supplier.trim())
+        .map(r => ({ supplier: r.supplier.trim(), job_type: r.job_type })),
       flight_type:    main.flight_type,
       status:         main.status,
       job_status:     main.job_status,
@@ -483,7 +492,7 @@ export default function EditOrderModal({ order, onClose }: Props) {
       documents: localDocs.filter(d => d.state === 'done').map(d => ({
         category: d.category, file_key: d.file_key, file_url: d.file_url, file_name: d.file_name,
       })),
-      shipper_2: cargo.shipper_2, consignee_2: cargo.consignee_2,
+      shipper_2: shippers.join(','), consignee_2: cargo.consignee_2,
       receiver_name: cargo.receiver_name, receiver_phone: cargo.receiver_phone,
       notes: cargo.notes, instr: cargo.instr,
       handed_over_by_id: cargo.handed_over_by_id ? Number(cargo.handed_over_by_id) : null,
@@ -578,56 +587,36 @@ export default function EditOrderModal({ order, onClose }: Props) {
             </div>
           </div>
 
-          {/* Multi-Supplier tag input */}
+          {/* Supplier + Job Type rows */}
           <div>
             <label className={lbl}>{t('orders.create.suppliersLabel')}</label>
-            <div className="flex gap-2">
-              <input
-                value={supplierInput}
-                onChange={e => setSupplierInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addSupplier() } }}
-                className={inp}
-                placeholder={t('orders.create.supplierPlaceholder')}
-              />
-              <button type="button" onClick={addSupplier}
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition flex items-center gap-1">
-                <Plus size={14} />
-              </button>
-            </div>
-            {suppliers.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                {suppliers.map(s => (
-                  <span key={s} className="flex items-center gap-1 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-full">
-                    {s}
-                    <button type="button" onClick={() => removeSupplier(s)}
-                      className="text-blue-400 hover:text-blue-700 transition">
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Multi-Job Type toggle */}
-          <div>
-            <label className={lbl}>{t('orders.create.jobTypesLabel')}</label>
-            <div className="flex flex-wrap gap-2">
-              {effectiveJobTypes.map(jt => (
-                <button
-                  key={jt.value}
-                  type="button"
-                  onClick={() => toggleJobType(jt.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-                    selectedJobTypes.includes(jt.value)
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  {jt.label}
-                </button>
+            <div className="space-y-2">
+              {supplierRows.map((row, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    value={row.supplier}
+                    onChange={e => updateSupplierRow(i, 'supplier', e.target.value)}
+                    className={inp}
+                    placeholder={t('orders.create.supplierPlaceholder')}
+                  />
+                  <select
+                    value={row.job_type}
+                    onChange={e => updateSupplierRow(i, 'job_type', e.target.value)}
+                    className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none w-40">
+                    {effectiveJobTypes.map(jt => <option key={jt.value} value={jt.value}>{jt.label}</option>)}
+                  </select>
+                  <button type="button" onClick={() => removeSupplierRow(i)}
+                    disabled={supplierRows.length === 1}
+                    className="px-2.5 py-2 border border-gray-300 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition disabled:opacity-30">
+                    <X size={14} />
+                  </button>
+                </div>
               ))}
             </div>
+            <button type="button" onClick={addSupplierRow}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition">
+              <Plus size={13} /> {t('orders.create.addSupplierRow')}
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -860,18 +849,40 @@ export default function EditOrderModal({ order, onClose }: Props) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('orders.create.shipper2')}</label>
-              {shipperCatalog.length > 0 && (
+              <div className="flex gap-2">
                 <select
-                  value={shipperCatalog.find(s => s.value === cargo.shipper_2) ? cargo.shipper_2 : ''}
-                  onChange={e => { if (e.target.value) setCargo(p => ({...p, shipper_2: e.target.value})) }}
-                  className={`${inp} mb-1.5`}>
-                  <option value="">— выбрать из списка —</option>
-                  {shipperCatalog.map(s => <option key={s.id} value={s.value}>{s.label}</option>)}
+                  value={shipperSelectValue}
+                  onChange={e => setShipperSelectValue(e.target.value)}
+                  className={inp}>
+                  <option value="">{t('orders.create.shipperSelectPlaceholder')}</option>
+                  {shipperCatalog.filter(s => !shippers.includes(s.value)).map(s => (
+                    <option key={s.id} value={s.value}>{s.label}</option>
+                  ))}
                 </select>
+                <button type="button" onClick={addShipper} disabled={!shipperSelectValue}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition disabled:opacity-40 flex items-center gap-1">
+                  <Plus size={14} />
+                </button>
+              </div>
+              {shippers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {shippers.map(s => {
+                    const entry = shipperCatalog.find(c => c.value === s)
+                    return (
+                      <span key={s} className="flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-full">
+                        {entry?.label || s}
+                        {entry?.linked_value && (
+                          <span className="px-1 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-mono">{entry.linked_value}</span>
+                        )}
+                        <button type="button" onClick={() => removeShipper(s)}
+                          className="text-blue-400 hover:text-blue-700 transition">
+                          <X size={10} />
+                        </button>
+                      </span>
+                    )
+                  })}
+                </div>
               )}
-              <textarea value={cargo.shipper_2}
-                onChange={e => setCargo(p => ({...p, shipper_2: e.target.value}))}
-                className={inp} rows={2} placeholder={t('orders.create.companyDetailsPlaceholder')} />
             </div>
             <div>
               <label className={lbl}>{t('orders.create.consignee2')}</label>

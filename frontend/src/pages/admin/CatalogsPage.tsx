@@ -6,12 +6,13 @@ import Modal from '../../components/ui/Modal'
 import { catalogsApi } from '../../api/catalogs'
 import type { CatalogEntry } from '../../types'
 
-const CATALOG_TYPE_KEYS = ['job_type', 'order_status', 'ntr'] as const
+const CATALOG_TYPE_KEYS = ['job_type', 'order_status', 'ntr', 'shipper'] as const
 type CatalogTypeKey = typeof CATALOG_TYPE_KEYS[number]
 
 const emptyForm = {
   value: '',
   label: '',
+  linked_value: '',
   sort_order: 0,
   active: true,
 }
@@ -31,6 +32,7 @@ export default function CatalogsPage() {
     description: t(`catalogs.types.${type}.description`),
     hint: type === 'job_type' ? 'T-IN, L-EXP, T-OUT...'
         : type === 'order_status' ? 'new, accepted, warehouse...'
+        : type === 'shipper' ? 'AIRBORNE, TURBINAR...'
         : 'GEN, DG, PER, VAL, EAP...',
   }))
 
@@ -39,6 +41,12 @@ export default function CatalogsPage() {
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['catalogs', selectedType],
     queryFn: () => catalogsApi.list(selectedType).then(r => r.data),
+  })
+
+  const { data: jobTypeOptions = [] } = useQuery({
+    queryKey: ['catalogs', 'job_type'],
+    queryFn: () => catalogsApi.list('job_type', true).then(r => r.data),
+    enabled: selectedType === 'shipper',
   })
 
   const set = (field: string, value: string | number | boolean) =>
@@ -56,6 +64,7 @@ export default function CatalogsPage() {
     setForm({
       value: entry.value,
       label: entry.label,
+      linked_value: entry.linked_value || '',
       sort_order: entry.sort_order,
       active: entry.active,
     })
@@ -133,6 +142,22 @@ export default function CatalogsPage() {
               placeholder="T-IN — Transport Import"
             />
           </div>
+          {selectedType === 'shipper' && (
+            <div>
+              <label className={lbl}>{t('catalogs.fLinkedJobType')}</label>
+              <select
+                value={form.linked_value}
+                onChange={e => set('linked_value', e.target.value)}
+                className={inp}
+              >
+                <option value="">{t('catalogs.linkedJobTypeNone')}</option>
+                {jobTypeOptions.map(jt => (
+                  <option key={jt.value} value={jt.value}>{jt.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={lbl}>{t('catalogs.fSortOrder')}</label>
@@ -237,6 +262,9 @@ export default function CatalogsPage() {
                 </th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">{t('catalogs.colValue')}</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">{t('catalogs.colLabel')}</th>
+                {selectedType === 'shipper' && (
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">{t('catalogs.fLinkedJobType')}</th>
+                )}
                 <th className="text-center px-4 py-3 font-medium text-gray-600 w-24">{t('catalogs.colOrder')}</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600 w-28">{t('catalogs.colStatus')}</th>
                 <th className="px-4 py-3 w-20"></th>
@@ -254,6 +282,17 @@ export default function CatalogsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{entry.label}</td>
+                  {selectedType === 'shipper' && (
+                    <td className="px-4 py-3">
+                      {entry.linked_value ? (
+                        <span className="font-mono text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                          {jobTypeOptions.find(jt => jt.value === entry.linked_value)?.label || entry.linked_value}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-center text-gray-500">{entry.sort_order}</td>
                   <td className="px-4 py-3 text-center">
                     <button

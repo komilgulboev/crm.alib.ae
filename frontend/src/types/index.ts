@@ -47,6 +47,7 @@ export interface CatalogEntry {
   type: string
   value: string
   label: string
+  linked_value: string
   sort_order: number
   active: boolean
   created_at: string
@@ -132,6 +133,13 @@ export interface Invoice {
   created_at: string
 }
 
+export interface OrderSupplierEntry {
+  id?: number
+  order_id?: number
+  supplier: string
+  job_type: string
+}
+
 export interface CargoItem {
   id: number
   order_id: number
@@ -204,7 +212,8 @@ export interface Order {
   dest_city: string         // DES
 
   // Стороны
-  supplier: string          // SUPPLIER (comma-separated for multi)
+  supplier: string          // SUPPLIER (comma-separated for multi, derived from suppliers[])
+  suppliers?: OrderSupplierEntry[] // пары Supplier + Job Type
   client_id: number
   client: Client            // CUSTOMER
   receiver_name: string

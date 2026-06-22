@@ -128,6 +128,7 @@ type Order struct {
 
 	// ── Связанные данные ──────────────────────────────────────────────────────
 	Items     []CargoItem      `gorm:"foreignKey:OrderID" json:"items,omitempty"`
+	Suppliers []OrderSupplier  `gorm:"foreignKey:OrderID" json:"suppliers,omitempty"` // пары Supplier + Job Type
 	Payments  []Payment        `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
 	History   []StatusHistory  `gorm:"foreignKey:OrderID" json:"history,omitempty"`
 	AWB       *AWBData         `gorm:"foreignKey:OrderID" json:"awb,omitempty"`

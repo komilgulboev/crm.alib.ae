@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alib/crm/internal/auth"
@@ -62,6 +63,7 @@ func (h *OrderHandler) Get(c *gin.Context) {
 	err := h.db.
 		Preload("Client").
 		Preload("Items").
+		Preload("Suppliers").
 		Preload("Payments.User").
 		Preload("History.User").
 		Preload("AssignedTo").
@@ -101,11 +103,16 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		order.ExchangeRate = 3.67
 	}
 
-	// AWB и документы сохраняются отдельно после создания заказа
+	// AWB, документы и пары Supplier/Job Type сохраняются отдельно после создания заказа
 	awb := order.AWB
 	order.AWB = nil
 	docs := order.Documents
 	order.Documents = nil
+	supplierEntries := order.Suppliers
+	order.Suppliers = nil
+	if len(supplierEntries) > 0 {
+		order.Supplier, order.JobType = deriveSupplierFields(supplierEntries)
+	}
 
 	if err := h.db.Create(&order).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -125,13 +132,21 @@ func (h *OrderHandler) Create(c *gin.Context) {
 		h.db.Create(&docs)
 	}
 
+	if len(supplierEntries) > 0 {
+		for i := range supplierEntries {
+			supplierEntries[i].ID = 0
+			supplierEntries[i].OrderID = order.ID
+		}
+		h.db.Create(&supplierEntries)
+	}
+
 	h.db.Create(&models.OrderLog{
 		OrderID: order.ID,
 		UserID:  order.CreatedByID,
 		Action:  "created",
 	})
 
-	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").
+	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").Preload("Suppliers").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB { return db.Order("created_at ASC") }).
 		First(&order, order.ID)
 
@@ -163,11 +178,16 @@ func (h *OrderHandler) Update(c *gin.Context) {
 	req.PaidAmount = existing.PaidAmount
 	req.PaymentStatus = existing.PaymentStatus
 
-	// AWB и документы обновляем отдельно
+	// AWB, документы и пары Supplier/Job Type обновляем отдельно
 	awb := req.AWB
 	req.AWB = nil
 	docs := req.Documents
 	req.Documents = nil
+	supplierEntries := req.Suppliers
+	req.Suppliers = nil
+	if len(supplierEntries) > 0 {
+		req.Supplier, req.JobType = deriveSupplierFields(supplierEntries)
+	}
 
 	if err := h.db.Save(&req).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -195,13 +215,23 @@ func (h *OrderHandler) Update(c *gin.Context) {
 		h.db.Create(&docs)
 	}
 
+	// Заменяем все пары Supplier/Job Type
+	h.db.Where("order_id = ?", existing.ID).Delete(&models.OrderSupplier{})
+	if len(supplierEntries) > 0 {
+		for i := range supplierEntries {
+			supplierEntries[i].ID = 0
+			supplierEntries[i].OrderID = existing.ID
+		}
+		h.db.Create(&supplierEntries)
+	}
+
 	// Логируем изменения
 	claims, _ := c.Get(middleware.UserKey)
 	userID := claims.(*auth.Claims).UserID
 	assignedChanged := ptrUintVal(existing.AssignedToID) != ptrUintVal(req.AssignedToID)
 	h.logChanges(existing.ID, userID, &existing, &req)
 
-	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").
+	h.db.Preload("Client").Preload("AssignedTo").Preload("AWB").Preload("Suppliers").
 		Preload("Documents", func(db *gorm.DB) *gorm.DB { return db.Order("created_at ASC") }).
 		First(&req, existing.ID)
 
@@ -384,6 +414,27 @@ func ptrUintVal(p *uint) uint {
 		return 0
 	}
 	return *p
+}
+
+// deriveSupplierFields собирает плоские строки Supplier/JobType (для поиска и колонок таблицы)
+// из списка пар Supplier+JobType, сохраняя только непустые уникальные значения.
+func deriveSupplierFields(entries []models.OrderSupplier) (supplier string, jobType string) {
+	var suppliers, jobTypes []string
+	seenSupplier := map[string]bool{}
+	seenJobType := map[string]bool{}
+	for _, e := range entries {
+		s := strings.TrimSpace(e.Supplier)
+		if s != "" && !seenSupplier[s] {
+			seenSupplier[s] = true
+			suppliers = append(suppliers, s)
+		}
+		jt := strings.TrimSpace(e.JobType)
+		if jt != "" && !seenJobType[jt] {
+			seenJobType[jt] = true
+			jobTypes = append(jobTypes, jt)
+		}
+	}
+	return strings.Join(suppliers, ","), strings.Join(jobTypes, ",")
 }
 
 type updateStatusRequest struct {

@@ -12,9 +12,10 @@ type CatalogEntry struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-	Type      string `gorm:"not null;index" json:"type"`       // job_type, ntr, ...
-	Value     string `gorm:"not null" json:"value"`            // T-IN, GEN, ...
-	Label     string `gorm:"not null" json:"label"`            // T-IN — Transport Import
-	SortOrder int    `gorm:"default:0" json:"sort_order"`
-	Active    bool   `gorm:"default:true" json:"active"`
+	Type        string `gorm:"not null;index" json:"type"`         // job_type, ntr, shipper ...
+	Value       string `gorm:"not null" json:"value"`              // T-IN, GEN, ...
+	Label       string `gorm:"not null" json:"label"`              // T-IN — Transport Import
+	LinkedValue string `gorm:"column:linked_value" json:"linked_value"` // for shipper: linked job_type value
+	SortOrder   int    `gorm:"default:0" json:"sort_order"`
+	Active      bool   `gorm:"default:true" json:"active"`
 }
